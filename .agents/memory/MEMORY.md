@@ -1,0 +1,1 @@
+- [WhatsApp configuration](whatsapp-configuration.md) — keep Meta secret names aligned and reject unsigned webhooks by default.
