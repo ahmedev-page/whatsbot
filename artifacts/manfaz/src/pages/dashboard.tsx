@@ -48,9 +48,14 @@ import {
   getLocalAccount,
   siteQueryKey,
   siteUrl,
+  slugifyUsername,
   useAccount,
+  useAccountMessages,
   useLogout,
+  useSendAssistantCommand,
+  useSiteDocument,
   type Account,
+  type InitialCollectionItemInput,
   type SiteDocument,
   type SiteStyle,
 } from '@/lib/account';
@@ -270,7 +275,7 @@ function maskPhone(phone: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// In-Platform Site Creator Modal
+// In-Platform Site Creator Modal — Complete Parameter Collection
 // ---------------------------------------------------------------------------
 function CreateSiteModal({
   open,
@@ -286,11 +291,26 @@ function CreateSiteModal({
   onSuccess: (created: SiteDocument) => void;
 }) {
   const [siteName, setSiteName] = useState('');
+  const [username, setUsername] = useState('');
   const [templateId, setTemplateId] = useState(initialTemplate);
   const [templateStyle, setTemplateStyle] = useState<SiteStyle>('modern');
   const [themeColor, setThemeColor] = useState('#1D4ED8');
+  const [darkMode, setDarkMode] = useState(false);
+  const [tagline, setTagline] = useState('');
+  const [headline, setHeadline] = useState('');
   const [description, setDescription] = useState('');
+  const [ctaLabel, setCtaLabel] = useState('');
   const [phone, setPhone] = useState(defaultPhone || '');
+  const [whatsapp, setWhatsapp] = useState(defaultPhone || '');
+  const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [instagram, setInstagram] = useState('');
+  const [twitter, setTwitter] = useState('');
+  const [tiktok, setTiktok] = useState('');
+  const [snapchat, setSnapchat] = useState('');
+  const [hours, setHours] = useState<Array<{ day: string; time: string }>>([]);
+  const [initialItems, setInitialItems] = useState<InitialCollectionItemInput[]>([]);
+  const [skillsText, setSkillsText] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -298,10 +318,24 @@ function CreateSiteModal({
   }, [initialTemplate]);
 
   useEffect(() => {
-    if (defaultPhone) setPhone(defaultPhone);
+    if (defaultPhone) {
+      setPhone((prev) => prev || defaultPhone);
+      setWhatsapp((prev) => prev || defaultPhone);
+    }
   }, [defaultPhone]);
 
   if (!open) return null;
+
+  const itemNoun =
+    templateId === 'restaurant'
+      ? 'طبق / صنف'
+      : templateId === 'services' || templateId === 'booking'
+      ? 'خدمة / باقة'
+      : templateId === 'portfolio'
+      ? 'مشروع / عمل'
+      : 'منتج';
+
+  const previewSlug = slugifyUsername(username.trim() || siteName.trim() || 'my-site');
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -309,13 +343,35 @@ function CreateSiteModal({
     setSubmitting(true);
 
     try {
+      const parsedSkills = skillsText
+        .split(/[,،\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       const created = await createWebsiteInPlatform({
         siteName: siteName.trim(),
+        username: username.trim() || undefined,
         templateId,
         templateStyle,
         themeColor,
+        darkMode,
+        tagline: tagline.trim() || undefined,
+        headline: headline.trim() || undefined,
         description: description.trim() || undefined,
+        ctaLabel: ctaLabel.trim() || undefined,
         phone: phone.trim() || undefined,
+        whatsapp: whatsapp.trim() || phone.trim() || undefined,
+        email: email.trim() || undefined,
+        address: address.trim() || undefined,
+        socialLinks: {
+          instagram: instagram.trim() || undefined,
+          twitter: twitter.trim() || undefined,
+          tiktok: tiktok.trim() || undefined,
+          snapchat: snapchat.trim() || undefined,
+        },
+        hours: hours.filter((h) => h.day.trim() || h.time.trim()),
+        initialItems: initialItems.filter((item) => item.name?.trim() || item.title?.trim()),
+        skills: parsedSkills.length > 0 ? parsedSkills : undefined,
       });
 
       setSubmitting(false);
@@ -332,7 +388,7 @@ function CreateSiteModal({
       style={{ backgroundColor: 'rgba(6, 11, 24, 0.72)' }}
     >
       <div
-        className="relative max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[#CBD5E1] bg-white p-6 text-[#0F172A] shadow-2xl sm:p-8"
+        className="relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-[#CBD5E1] bg-white p-6 text-[#0F172A] shadow-2xl sm:p-8"
         style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
       >
         <button
@@ -353,21 +409,22 @@ function CreateSiteModal({
           </span>
           <div>
             <h2 className="text-xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-              إنشاء خدمة أو موقع جديد من المنصة
+              إنشاء خدمة أو موقع جديد وحفظه في قاعدة البيانات
             </h2>
             <p className="text-xs font-medium text-[#475569]" style={{ color: '#475569' }}>
-              جاهز للإطلاق والتخصيص الفوري داخل استوديو ORxai
+              أدخل بيانات نشاطك الفعلية والمنتجات ومعلومات التواصل دون أي بيانات وهمية
             </p>
           </div>
         </div>
 
         <form onSubmit={handleCreate} className="mt-6 space-y-5">
+          {/* 1. Template Type */}
           <div>
             <label
               className="block text-xs font-extrabold text-[#0F172A]"
               style={{ color: '#0F172A' }}
             >
-              نوع النشاط أو الخدمة
+              نوع النشاط أو الخدمة *
             </label>
             <div className="mt-2 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
               {[
@@ -406,23 +463,78 @@ function CreateSiteModal({
             </div>
           </div>
 
-          <div>
-            <label
-              className="block text-xs font-extrabold text-[#0F172A]"
-              style={{ color: '#0F172A' }}
-            >
-              اسم المشروع أو النشاط التجاري *
-            </label>
-            <input
-              type="text"
-              required
-              value={siteName}
-              onChange={(e) => setSiteName(e.target.value)}
-              placeholder="مثال: مخبز رغيف وسمسم، استوديو أفق، عيادة د. سارة"
-              className="mt-1.5 h-12 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-4 text-sm font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
-              style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-              data-testid="input-site-name"
-            />
+          {/* 2. Site Name & Custom Username Slug */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                className="block text-xs font-extrabold text-[#0F172A]"
+                style={{ color: '#0F172A' }}
+              >
+                اسم المشروع أو النشاط التجاري *
+              </label>
+              <input
+                type="text"
+                required
+                value={siteName}
+                onChange={(e) => setSiteName(e.target.value)}
+                placeholder="مثال: مخبز رغيف وسمسم، استوديو أفق"
+                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 text-sm font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                data-testid="input-site-name"
+              />
+            </div>
+
+            <div>
+              <label
+                className="block text-xs font-extrabold text-[#0F172A]"
+                style={{ color: '#0F172A' }}
+              >
+                الرابط المخصص للموقع (Username)
+              </label>
+              <input
+                type="text"
+                dir="ltr"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={previewSlug}
+                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                data-testid="input-site-username"
+              />
+              <p dir="ltr" className="mt-1 text-right font-mono text-[11px] font-bold text-[#1D4ED8]" style={{ color: '#1D4ED8' }}>
+                {siteUrl(previewSlug)}
+              </p>
+            </div>
+          </div>
+
+          {/* 3. Tagline, Headline, Description, CTA */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-extrabold text-[#0F172A]" style={{ color: '#0F172A' }}>
+                العبارة الترحيبية العلوية (Tagline)
+              </label>
+              <input
+                type="text"
+                value={tagline}
+                onChange={(e) => setTagline(e.target.value)}
+                placeholder="مثال: جودة أصيلة منذ 2018"
+                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-extrabold text-[#0F172A]" style={{ color: '#0F172A' }}>
+                العنوان الرئيسي البارز (Headline)
+              </label>
+              <input
+                type="text"
+                value={headline}
+                onChange={(e) => setHeadline(e.target.value)}
+                placeholder={siteName.trim() || 'عنوان واجهة الموقع'}
+                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+              />
+            </div>
           </div>
 
           <div>
@@ -430,18 +542,19 @@ function CreateSiteModal({
               className="block text-xs font-extrabold text-[#0F172A]"
               style={{ color: '#0F172A' }}
             >
-              نبذة مختصرة أو جملة تعريفية
+              نبذة ووصف النشاط التجاري
             </label>
             <textarea
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="ما الذي تقدمه لعملائك؟ سطرين يعرفان بنشاطك المميز."
+              placeholder="ما الذي تقدمه لعملائك؟ اكتب وصفاً حقيقياً يظهر لزوار موقعك."
               className="mt-1.5 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] p-3 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
               style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
             />
           </div>
 
+          {/* 4. Style, CTA Label, Theme Color, Dark Mode */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label
@@ -452,7 +565,11 @@ function CreateSiteModal({
               </label>
               <select
                 value={templateStyle}
-                onChange={(e) => setTemplateStyle(e.target.value as SiteStyle)}
+                onChange={(e) => {
+                  const nextStyle = e.target.value as SiteStyle;
+                  setTemplateStyle(nextStyle);
+                  if (nextStyle === 'cinematic') setDarkMode(true);
+                }}
                 className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
                 style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
               >
@@ -468,46 +585,335 @@ function CreateSiteModal({
                 className="block text-xs font-extrabold text-[#0F172A]"
                 style={{ color: '#0F172A' }}
               >
-                رقم واتساب للطلبات
+                نص زر الإجراء الرئيسي (CTA)
               </label>
               <input
                 type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                dir="ltr"
-                placeholder="966500000000"
-                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
+                value={ctaLabel}
+                onChange={(e) => setCtaLabel(e.target.value)}
+                placeholder={
+                  templateId === 'booking'
+                    ? 'احجز الآن'
+                    : templateId === 'restaurant'
+                    ? 'شاهد المنيو واطلب'
+                    : 'تواصل واطلب الآن'
+                }
+                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
                 style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
               />
             </div>
           </div>
 
-          <div>
-            <label
-              className="block text-xs font-extrabold text-[#0F172A]"
-              style={{ color: '#0F172A' }}
-            >
-              لون الهوية المميز
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4" style={{ backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }}>
+            <div>
+              <label
+                className="block text-xs font-extrabold text-[#0F172A]"
+                style={{ color: '#0F172A' }}
+              >
+                لون الهوية المميز
+              </label>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {COLOR_PRESETS.map((color) => (
+                  <button
+                    type="button"
+                    key={color}
+                    onClick={() => setThemeColor(color)}
+                    className={`grid size-8 place-items-center rounded-full transition-transform ${
+                      themeColor === color
+                        ? 'scale-110 ring-2 ring-[#0F172A] ring-offset-2'
+                        : 'hover:scale-105'
+                    }`}
+                    style={{ backgroundColor: color, color: '#FFFFFF' }}
+                    aria-label={color}
+                  >
+                    {themeColor === color && <Check size={13} strokeWidth={3} />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="inline-flex cursor-pointer items-center gap-2.5 text-xs font-extrabold text-[#0F172A]" style={{ color: '#0F172A' }}>
+              <input
+                type="checkbox"
+                checked={darkMode}
+                onChange={(e) => setDarkMode(e.target.checked)}
+                className="size-4 accent-[#1D4ED8]"
+              />
+              <span>تفعيل الوضع الداكن افتراضياً</span>
             </label>
-            <div className="mt-2 flex flex-wrap items-center gap-2.5">
-              {COLOR_PRESETS.map((color) => (
-                <button
-                  type="button"
-                  key={color}
-                  onClick={() => setThemeColor(color)}
-                  className={`grid size-9 place-items-center rounded-full transition-transform ${
-                    themeColor === color
-                      ? 'scale-110 ring-2 ring-[#0F172A] ring-offset-2'
-                      : 'hover:scale-105'
-                  }`}
-                  style={{ backgroundColor: color, color: '#FFFFFF' }}
-                  aria-label={color}
-                >
-                  {themeColor === color && <Check size={14} strokeWidth={3} />}
-                </button>
-              ))}
+          </div>
+
+          {/* 5. Contact Information (Saved inside json_structure.contact) */}
+          <div className="rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 space-y-3" style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}>
+            <p className="text-xs font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+              بيانات التواصل والعنوان
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
+                  رقم واتساب للطلبات المباشرة
+                </label>
+                <input
+                  type="text"
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(e.target.value)}
+                  dir="ltr"
+                  placeholder="9665XXXXXXXX"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
+                  رقم الجوال للاتصال
+                </label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  dir="ltr"
+                  placeholder="9665XXXXXXXX"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
+                  البريد الإلكتروني (اختياري)
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  dir="ltr"
+                  placeholder="info@example.com"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
+                  العنوان أو المدينة (اختياري)
+                </label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="مثال: الرياض - حي العليا"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+              </div>
             </div>
           </div>
+
+          {/* 6. Initial Products / Dishes / Services / Projects */}
+          <div className="rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 space-y-3" style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+                  العناصر المبدئية ({itemNoun})
+                </p>
+                <p className="text-[11px] font-medium text-[#475569]" style={{ color: '#475569' }}>
+                  أضف منتجاتك أو خدماتك الحقيقية الآن أو لاحقاً من المحرر
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setInitialItems((prev) => [
+                    ...prev,
+                    { name: '', price: '', category: '', description: '' },
+                  ])
+                }
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1E40AF]"
+                style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+                data-testid="button-modal-add-item"
+              >
+                <Plus size={14} />
+                <span>إضافة {itemNoun}</span>
+              </button>
+            </div>
+
+            {initialItems.length > 0 && (
+              <div className="space-y-2.5">
+                {initialItems.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="grid grid-cols-1 gap-2 rounded-xl border border-[#CBD5E1] bg-white p-3 sm:grid-cols-12"
+                    style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
+                  >
+                    <input
+                      type="text"
+                      value={item.name || ''}
+                      onChange={(e) =>
+                        setInitialItems((prev) =>
+                          prev.map((entry, i) => (i === idx ? { ...entry, name: e.target.value } : entry))
+                        )
+                      }
+                      placeholder={`اسم الـ${itemNoun} *`}
+                      className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-4"
+                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                    />
+                    {templateId !== 'portfolio' && (
+                      <input
+                        type="text"
+                        value={item.price || ''}
+                        onChange={(e) =>
+                          setInitialItems((prev) =>
+                            prev.map((entry, i) => (i === idx ? { ...entry, price: e.target.value } : entry))
+                          )
+                        }
+                        placeholder="السعر (مثال: 45 ر.س)"
+                        className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-3"
+                        style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                      />
+                    )}
+                    <input
+                      type="text"
+                      value={item.description || ''}
+                      onChange={(e) =>
+                        setInitialItems((prev) =>
+                          prev.map((entry, i) =>
+                            i === idx ? { ...entry, description: e.target.value } : entry
+                          )
+                        )
+                      }
+                      placeholder="وصف مختصر"
+                      className={`h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-medium text-[#0F172A] ${
+                        templateId === 'portfolio' ? 'sm:col-span-7' : 'sm:col-span-4'
+                      }`}
+                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setInitialItems((prev) => prev.filter((_, i) => i !== idx))}
+                      className="grid h-9 place-items-center rounded-lg border border-[#FECDD3] bg-[#FFF1F2] text-[#BE123C] sm:col-span-1"
+                      style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#BE123C' }}
+                      aria-label="حذف العنصر"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {templateId === 'portfolio' && (
+              <div className="pt-2">
+                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
+                  المهارات والتخصصات (افصل بينها بفاصلة)
+                </label>
+                <input
+                  type="text"
+                  value={skillsText}
+                  onChange={(e) => setSkillsText(e.target.value)}
+                  placeholder="مثال: تصميم الهوية، واجهات المستخدم، تطوير الويب"
+                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-xs font-bold text-[#0F172A]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* 7. Working Hours & Social Links (Optional Collapsible Details) */}
+          <details className="rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4" style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}>
+            <summary className="cursor-pointer text-xs font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+              ساعات العمل وحسابات التواصل الاجتماعي (اختياري)
+            </summary>
+            <div className="mt-4 space-y-4">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
+                    أوقات الدوام
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setHours((prev) => [...prev, { day: '', time: '' }])}
+                    className="rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-1 text-[11px] font-bold text-[#1D4ED8]"
+                    style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#1D4ED8' }}
+                  >
+                    + إضافة فترة دوام
+                  </button>
+                </div>
+                {hours.map((row, idx) => (
+                  <div key={idx} className="mt-2 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={row.day}
+                      onChange={(e) =>
+                        setHours((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, day: e.target.value } : r))
+                        )
+                      }
+                      placeholder="الأيام (مثال: السبت - الخميس)"
+                      className="h-9 flex-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 text-xs font-bold text-[#0F172A]"
+                      style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                    />
+                    <input
+                      type="text"
+                      value={row.time}
+                      onChange={(e) =>
+                        setHours((prev) =>
+                          prev.map((r, i) => (i === idx ? { ...r, time: e.target.value } : r))
+                        )
+                      }
+                      placeholder="الوقت (مثال: 9 ص - 10 م)"
+                      className="h-9 flex-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 text-xs font-bold text-[#0F172A]"
+                      style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setHours((prev) => prev.filter((_, i) => i !== idx))}
+                      className="grid size-9 place-items-center rounded-lg border border-[#FECDD3] bg-[#FFF1F2] text-[#BE123C]"
+                      style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#BE123C' }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={instagram}
+                  onChange={(e) => setInstagram(e.target.value)}
+                  placeholder="Instagram (@username)"
+                  className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={twitter}
+                  onChange={(e) => setTwitter(e.target.value)}
+                  placeholder="X / Twitter (@username)"
+                  className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={tiktok}
+                  onChange={(e) => setTiktok(e.target.value)}
+                  placeholder="TikTok (@username)"
+                  className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={snapchat}
+                  onChange={(e) => setSnapchat(e.target.value)}
+                  placeholder="Snapchat (@username)"
+                  className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+                />
+              </div>
+            </div>
+          </details>
 
           <div className="pt-2">
             <button
@@ -1008,41 +1414,50 @@ function ServicesSection({
 }
 
 // ---------------------------------------------------------------------------
-// Section: WhatsApp Companion Assistant
+// Section: WhatsApp Companion Assistant (Connected to Database)
 // ---------------------------------------------------------------------------
 function AssistantSection({ account, botNumber }: { account: Account; botNumber: string }) {
-  const [messages, setMessages] = useState<
+  const historyQuery = useAccountMessages();
+  const sendMutation = useSendAssistantCommand();
+  const [localTranscript, setLocalTranscript] = useState<
     Array<{ sender: 'user' | 'bot'; text: string; time: string }>
-  >([
-    {
-      sender: 'bot',
-      text: 'مرحباً بك! أنا مساعدك السريع في واتساب ⚡ جاهز للتحقق السريع، وإجراء التعديلات النصية الخاطفة، وموافاتك بإحصائيات زيارات موقعك فوراً.',
-      time: 'الآن',
-    },
-  ]);
+  >([]);
   const [input, setInput] = useState('');
 
+  const serverMessages = (historyQuery.data ?? []).map((msg) => ({
+    sender: (msg.direction === 'inbound' ? 'user' : 'bot') as 'user' | 'bot',
+    text: msg.content,
+    time: new Intl.DateTimeFormat('ar-SA', { timeStyle: 'short' }).format(
+      new Date(msg.createdAt)
+    ),
+  }));
+
+  const welcomeMessage = {
+    sender: 'bot' as const,
+    text: account.website
+      ? `مرحباً بك! موقعك المتصل في قاعدة البيانات هو «${account.website.siteName}».\nيمكنك إرسال أوامر مباشرة لإضافة منتجات، تعديل ساعات العمل، أو الاستعلام عن الزيارات الحقيقية.`
+      : 'مرحباً بك في المساعد السريع المتصل بقاعدة البيانات! أنشئ موقعك أولاً من قسم «خدماتي وموقعي» ثم استخدم الأوامر السريعة هنا أو عبر واتساب.',
+    time: 'متصل',
+  };
+
+  const displayedMessages =
+    serverMessages.length > 0
+      ? [...serverMessages, ...localTranscript]
+      : [welcomeMessage, ...localTranscript];
+
   const sendCommand = (cmd: string) => {
-    const userMsg = { sender: 'user' as const, text: cmd, time: 'الآن' };
-    let reply = '';
-
-    if (cmd.includes('زائر') || cmd.includes('إحصائيات') || cmd.includes('زيارات')) {
-      reply = `📊 إحصائيات موقعك اليوم:\n• عدد الزوار اليوم: ${
-        account.website?.visitsToday || 42
-      } زائر\n• إجمالي الزيارات: ${
-        account.website?.visitsTotal || 840
-      } زيارة\n• أكثر الصفحات نشاطاً: القائمة الرئيسية والطلبات 🚀`;
-    } else if (cmd.includes('طبق') || cmd.includes('منتج') || cmd.includes('أضف')) {
-      reply = `✅ تم استقبال طلبك: "${cmd}" وتم تحديث موقعك وقائمتك فورياً! يمكنك مشاهدة التغيير الآن في الرابط.`;
-    } else if (cmd.includes('تحقق') || cmd.includes('كود')) {
-      reply = `🔐 كود التحقق السريع النشط لحسابك هو: ORX-777 (صالح لمدة 10 دقائق).`;
-    } else if (cmd.includes('مواعيد') || cmd.includes('أوقات')) {
-      reply = `⏰ تم تحديث ساعات العمل الخاصة بنشاطك بنجاح ونشرها على الموقع.`;
-    } else {
-      reply = `✨ تم استلام رسالتك وتطبيق التعديل النصي بنجاح. أرسل "إحصائيات" لمتابعة التفاعل أو "مساعدة" لعرض الأوامر السريعة.`;
-    }
-
-    setMessages((prev) => [...prev, userMsg, { sender: 'bot', text: reply, time: 'الآن' }]);
+    const cleanCmd = cmd.trim();
+    if (!cleanCmd || sendMutation.isPending) return;
+    const nowTime = new Intl.DateTimeFormat('ar-SA', { timeStyle: 'short' }).format(new Date());
+    setLocalTranscript((prev) => [...prev, { sender: 'user', text: cleanCmd, time: nowTime }]);
+    sendMutation.mutate(cleanCmd, {
+      onSuccess: (res) => {
+        setLocalTranscript((prev) => [
+          ...prev,
+          { sender: 'bot', text: res.reply, time: nowTime },
+        ]);
+      },
+    });
   };
 
   const handleSend = (e: React.FormEvent) => {
@@ -1060,7 +1475,7 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
           مساعد واتساب السريع (Companion Assistant)
         </h1>
         <p className="mt-1 text-sm font-medium text-[#475569]" style={{ color: '#475569' }}>
-          دور المساعد: التحقق الآمن للدخول، التعديلات النصية اللحظية، والاستعلام السريع عن الإحصائيات في أي وقت.
+          متصل مباشرة بقاعدة بيانات موقعك لتنفيذ التعديلات النصية اللحظية وعرض الإحصائيات الفعلية.
         </p>
       </div>
 
@@ -1068,7 +1483,7 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
         {/* Capabilities Card */}
         <Card className="space-y-5 p-6">
           <h2 className="text-base font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-            مهام المساعد السريع في واتساب
+            مهام المساعد السريع في واتساب والمنصة
           </h2>
 
           <div className="space-y-4">
@@ -1084,13 +1499,13 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
               </span>
               <div>
                 <h3 className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-                  1. التحقق الآمن بخطوة واحدة
+                  1. التحقق الآمن لمرة واحدة لكل جهاز
                 </h3>
                 <p
                   className="mt-1 text-xs font-medium leading-5 text-[#475569]"
                   style={{ color: '#475569' }}
                 >
-                  يرسل لك كود دخول لمرة واحدة عند تسجيل الدخول لتفتح لوحتك فوراً دون الحاجة لكلمات مرور معقدة.
+                  يوثّق ملكية رقمك في أول مرة فقط ويحفظ معرّف جهازك في قاعدة البيانات للدخول الفوري لاحقاً.
                 </p>
               </div>
             </div>
@@ -1107,13 +1522,13 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
               </span>
               <div>
                 <h3 className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-                  2. تعديلات نصية سريعة بالرسائل
+                  2. تعديلات مباشرة في قاعدة البيانات
                 </h3>
                 <p
                   className="mt-1 text-xs font-medium leading-5 text-[#475569]"
                   style={{ color: '#475569' }}
                 >
-                  أرسل للبوت: "أضف طبق اليوم كذا" أو "غيّر ساعات العمل إلى 9ص-11م" ليُحدّث موقعك فوراً دون فتح المنصة.
+                  أرسل: «أضف منتج: قهوة مختصة 25 ر.س» أو «أوقات العمل: 9ص - 11م» ليتم حفظها فوراً في موقعك المنشور.
                 </p>
               </div>
             </div>
@@ -1130,13 +1545,13 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
               </span>
               <div>
                 <h3 className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-                  3. إحصائيات وتقارير الزيارات اللحظية
+                  3. إحصائيات الزيارات الحقيقية
                 </h3>
                 <p
                   className="mt-1 text-xs font-medium leading-5 text-[#475569]"
                   style={{ color: '#475569' }}
                 >
-                  اكتب للبوت: "كم زائر اليوم؟" وسيرسل لك تقريراً فورياً بعدد الزيارات والتفاعل.
+                  اكتب: «كم زائر اليوم؟» ليعرض لك العدد الفعلي المسجل في جدول الزيارات بقاعدة البيانات.
                 </p>
               </div>
             </div>
@@ -1144,24 +1559,36 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
 
           {botNumber && (
             <div
-              className="rounded-2xl border border-[#1E293B] bg-[#0B132B] p-4 text-center text-white"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#1E293B] bg-[#0B132B] p-4 text-white"
               style={{ backgroundColor: '#0B132B', borderColor: '#1E293B', color: '#FFFFFF' }}
             >
-              <p className="text-xs font-bold text-[#93C5FD]" style={{ color: '#93C5FD' }}>
-                رقم المساعد الرسمي المتصل:
-              </p>
-              <p
-                dir="ltr"
-                className="mt-1 font-mono text-sm font-black text-white"
-                style={{ color: '#FFFFFF' }}
+              <div>
+                <p className="text-xs font-bold text-[#93C5FD]" style={{ color: '#93C5FD' }}>
+                  رقم بوت واتساب الرسمي المتصل:
+                </p>
+                <p
+                  dir="ltr"
+                  className="mt-0.5 text-right font-mono text-sm font-black text-white"
+                  style={{ color: '#FFFFFF' }}
+                >
+                  +{botNumber.replace(/[^\d]/g, '')}
+                </p>
+              </div>
+              <a
+                href={`https://wa.me/${botNumber.replace(/[^\d]/g, '')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#2563EB] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#1D4ED8]"
+                style={{ backgroundColor: '#2563EB', color: '#FFFFFF' }}
               >
-                +{botNumber}
-              </p>
+                <MessageCircle size={15} />
+                <span>فتح محادثة البوت</span>
+              </a>
             </div>
           )}
         </Card>
 
-        {/* Live Simulator Widget */}
+        {/* Live Database-Backed Assistant Console */}
         <Card className="flex h-[480px] flex-col overflow-hidden border border-[#CBD5E1]">
           <div
             className="flex items-center gap-3 border-b border-[#1E293B] bg-[#0B132B] px-5 py-3.5 text-white"
@@ -1175,10 +1602,10 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
             </span>
             <div>
               <p className="text-xs font-black text-white" style={{ color: '#FFFFFF' }}>
-                محاكي مساعد واتساب السريع
+                وحدة أوامر المساعد السريع المتصلة بالموقع
               </p>
               <p className="text-[11px] font-medium text-[#93C5FD]" style={{ color: '#93C5FD' }}>
-                جرّب الأوامر السريعة مباشرة
+                أي أمر هنا يحدّث موقعك ويحفظ في سجل المحادثات
               </p>
             </div>
           </div>
@@ -1188,7 +1615,7 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
             className="flex-1 space-y-3 overflow-y-auto bg-[#F1F5F9] p-4"
             style={{ backgroundColor: '#F1F5F9' }}
           >
-            {messages.map((msg, idx) => (
+            {displayedMessages.map((msg, idx) => (
               <div
                 key={idx}
                 className={`flex ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}
@@ -1227,14 +1654,15 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
           >
             {[
               'كم زائر اليوم؟',
-              'أضف طبق اليوم: باستا بالصلصة البيضاء 45 ر.س',
-              'كود التحقق النشط',
-              'أوقات العمل الجديدة: 10ص إلى 12 ليلاً',
+              'أضف منتج: قهوة مختصة 25 ر.س',
+              'أوقات العمل: السبت - الخميس 9ص إلى 11م',
             ].map((cmd) => (
               <button
                 key={cmd}
+                type="button"
+                disabled={sendMutation.isPending}
                 onClick={() => sendCommand(cmd)}
-                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 text-[11px] font-bold text-[#334155] transition-colors hover:border-[#2563EB] hover:bg-[#EFF6FF] hover:text-[#1D4ED8]"
+                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 text-[11px] font-bold text-[#334155] transition-colors hover:border-[#2563EB] hover:bg-[#EFF6FF] hover:text-[#1D4ED8] disabled:opacity-50"
                 style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
               >
                 {cmd}
@@ -1252,13 +1680,14 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="اكتب أمراً أو سؤالاً للمساعد السريع..."
+              placeholder="اكتب أمراً (مثال: أضف منتج: عسل سدر 120 ر.س)..."
               className="h-10 flex-1 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-4 text-xs font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
               style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
             />
             <button
               type="submit"
-              className="grid size-10 place-items-center rounded-xl bg-[#1D4ED8] text-white transition-transform hover:bg-[#1E40AF]"
+              disabled={sendMutation.isPending || !input.trim()}
+              className="grid size-10 place-items-center rounded-xl bg-[#1D4ED8] text-white transition-transform hover:bg-[#1E40AF] disabled:opacity-50"
               style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
               aria-label="إرسال"
             >
@@ -1272,18 +1701,27 @@ function AssistantSection({ account, botNumber }: { account: Account; botNumber:
 }
 
 // ---------------------------------------------------------------------------
-// Section: Analytics
+// Section: Analytics (100% Real Database Metrics — Zero Fake Numbers)
 // ---------------------------------------------------------------------------
 function AnalyticsSection({ account }: { account: Account }) {
   const website = account.website;
+  const siteDoc = useSiteDocument();
+  const doc = siteDoc.data;
+  const collectionKey = doc?.collectionKey || 'items';
+  const rawList = doc?.jsonStructure?.[collectionKey];
+  const publishedItemsCount = Array.isArray(rawList) ? rawList.length : 0;
+  const visitsToday = website?.visitsToday ?? 0;
+  const visitsTotal = website?.visitsTotal ?? 0;
+  const remainingMessages = Math.max(0, account.freeMessagesLimit - account.freeMessagesUsed);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-          لوحة الإحصائيات والتحليلات
+          لوحة الإحصائيات والتحليلات الفعليّة
         </h1>
         <p className="mt-1 text-sm font-medium text-[#475569]" style={{ color: '#475569' }}>
-          تتبع تفاعل الزوار والطلبات ومصادر الزيارات لموقعك
+          جميع الأرقام أدناه مسجلة فعلياً من قاعدة البيانات (جدول الزيارات وعناصر موقعك المنشورة) دون أي بيانات وهمية.
         </p>
       </div>
 
@@ -1298,11 +1736,12 @@ function AnalyticsSection({ account }: { account: Account }) {
           <p
             className="mt-4 font-mono text-3xl font-black tabular-nums text-[#0F172A]"
             style={{ color: '#0F172A' }}
+            data-testid="stat-visits-today"
           >
-            {website?.visitsToday || 42}
+            {visitsToday}
           </p>
           <p className="mt-1 text-xs font-bold text-[#475569]" style={{ color: '#475569' }}>
-            زيارات اليوم
+            زيارات اليوم الفعليّة
           </p>
         </Card>
 
@@ -1316,11 +1755,12 @@ function AnalyticsSection({ account }: { account: Account }) {
           <p
             className="mt-4 font-mono text-3xl font-black tabular-nums text-[#0F172A]"
             style={{ color: '#0F172A' }}
+            data-testid="stat-visits-total"
           >
-            {website?.visitsTotal || 840}
+            {visitsTotal}
           </p>
           <p className="mt-1 text-xs font-bold text-[#475569]" style={{ color: '#475569' }}>
-            إجمالي الزيارات
+            إجمالي الزيارات الكلي
           </p>
         </Card>
 
@@ -1329,16 +1769,17 @@ function AnalyticsSection({ account }: { account: Account }) {
             className="grid size-11 place-items-center rounded-xl border border-[#A7F3D0] bg-[#ECFDF5] text-[#047857]"
             style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
           >
-            <Smartphone size={20} />
+            <ShoppingBag size={20} />
           </span>
           <p
             className="mt-4 font-mono text-3xl font-black tabular-nums text-[#0F172A]"
             style={{ color: '#0F172A' }}
+            data-testid="stat-published-items"
           >
-            94%
+            {publishedItemsCount}
           </p>
           <p className="mt-1 text-xs font-bold text-[#475569]" style={{ color: '#475569' }}>
-            نسبة زوار الجوال
+            العناصر والخدمات المنشورة بالموقع
           </p>
         </Card>
 
@@ -1347,16 +1788,17 @@ function AnalyticsSection({ account }: { account: Account }) {
             className="grid size-11 place-items-center rounded-xl border border-[#DDD6FE] bg-[#F5F3FF] text-[#6D28D9]"
             style={{ backgroundColor: '#F5F3FF', borderColor: '#DDD6FE', color: '#6D28D9' }}
           >
-            <ShoppingBag size={20} />
+            <MessageCircle size={20} />
           </span>
           <p
             className="mt-4 font-mono text-3xl font-black tabular-nums text-[#0F172A]"
             style={{ color: '#0F172A' }}
+            data-testid="stat-remaining-messages"
           >
-            18
+            {remainingMessages}
           </p>
           <p className="mt-1 text-xs font-bold text-[#475569]" style={{ color: '#475569' }}>
-            طلبات وتواصل واتساب
+            الرصيد المتبقي من رسائل المساعد
           </p>
         </Card>
       </div>
@@ -1366,10 +1808,10 @@ function AnalyticsSection({ account }: { account: Account }) {
         style={{ backgroundColor: '#0B132B', borderColor: '#1E293B', color: '#FFFFFF' }}
       >
         <h3 className="text-sm font-black text-[#38BDF8]" style={{ color: '#38BDF8' }}>
-          تلميحة لزيادة الزيارات والتحويل:
+          كيف يتم احتساب الزيارات؟
         </h3>
         <p className="mt-2 text-xs font-medium leading-6 text-[#CBD5E1]" style={{ color: '#CBD5E1' }}>
-          ضع رابط موقعك في خانة الرابط الحيوي (Bio) على حساباتك في إنستغرام وتيك توك وخرائط قوقل لتوجيه العملاء مباشرة لقائمة المنتجات وطلبات واتساب السريعة.
+          يتم تسجيل كل زيارة حقيقية لموقعك المنشور تلقائياً في جدول <code className="font-mono text-white">site_visits</code> داخل قاعدة البيانات عند فتح الزوار لرابط موقعك.
         </p>
       </Card>
     </div>

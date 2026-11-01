@@ -108,6 +108,10 @@ function Login() {
         onSuccess: (session) => {
           if (session.authenticated) {
             sessionStorage.setItem('manfaz-admin', 'true');
+            const maybeToken = (session as { token?: string }).token;
+            if (maybeToken) {
+              sessionStorage.setItem('manfaz-admin-token', maybeToken);
+            }
             window.location.reload();
           } else {
             setMessage('كلمة المرور غير صحيحة.');
@@ -1328,6 +1332,7 @@ export default function Admin() {
   const currentLabel = nav.find((item) => item.id === section)?.label || '';
   const logout = () => {
     sessionStorage.removeItem('manfaz-admin');
+    sessionStorage.removeItem('manfaz-admin-token');
     setAuthenticated(false);
   };
   return (

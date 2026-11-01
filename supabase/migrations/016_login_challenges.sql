@@ -21,5 +21,14 @@ create table if not exists public.login_challenges (
 );
 
 create index if not exists login_challenges_expires_idx on public.login_challenges (expires_at);
+create index if not exists login_challenges_code_pending_idx on public.login_challenges (code) where status = 'pending';
 
 alter table public.login_challenges enable row level security;
+
+do $$
+begin
+  create policy "backend service role can manage login challenges"
+    on public.login_challenges for all to service_role using (true) with check (true);
+exception
+  when duplicate_object then null;
+end $$;

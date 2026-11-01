@@ -1,16 +1,19 @@
-import { clearUserSessionCookie, encryptSecret, getUserIdFromRequest, isAdminRequest, sessionCookie, userSessionCookie } from "./crypto";
+import { clearUserSessionCookie, createSessionToken, createUserSessionToken, encryptSecret, getUserIdFromRequest, isAdminRequest, sessionCookie, userSessionCookie } from "./crypto";
 import { getMetaPhoneNumber, sendTextMessage, sendTypingIndicator, verifyMetaSignature } from "./meta";
 import { processIncomingMessage } from "./message-handler";
 import {
   addConversationMessage,
+  addTrustedDeviceForUser,
   consumeLoginChallenge,
   createLoginChallenge,
   createWebsite,
+  deleteWebsite,
   getConversationMessagesPage,
   getLatestWebsite,
   getLoginChallengeById,
   getSettings,
   getUserById,
+  getUserByPhone,
   getVisitStats,
   getUnreadMessageCounts,
   getWebsiteByPublicId,
@@ -63,28 +66,40 @@ function json(
   });
 }
 
-function corsHeaders(env: Env, request: Request): Record<string, string> {
-  const origin = request.headers.get("Origin");
+function isOriginMatch(env: Env, origin: string | null): boolean {
+  if (!origin) return true;
+  const cleanOrigin = origin.trim().replace(/\/$/, "");
   const allowed = (env.FRONTEND_URL || "")
     .split(",")
     .map((value) => value.trim().replace(/\/$/, ""))
     .filter(Boolean);
+  if (allowed.length === 0 || allowed.includes(cleanOrigin)) return true;
+  for (const item of allowed) {
+    try {
+      const allowedHost = new URL(item).hostname;
+      const originHost = new URL(cleanOrigin).hostname;
+      if (allowedHost.endsWith(".pages.dev") && originHost.endsWith(`.${allowedHost}`)) {
+        return true;
+      }
+    } catch {
+      // ignore invalid URL
+    }
+  }
+  return false;
+}
+
+function corsHeaders(env: Env, request: Request): Record<string, string> {
+  const origin = request.headers.get("Origin");
   return {
     "access-control-allow-credentials": "true",
-    "access-control-allow-headers": "Content-Type",
-    "access-control-allow-methods": "GET,POST,PUT,PATCH,OPTIONS",
-    ...(origin && allowed.includes(origin) ? { "access-control-allow-origin": origin } : {}),
+    "access-control-allow-headers": "Content-Type, Authorization, X-Session-Token, X-Device-Id, X-Admin-Token",
+    "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    ...(origin && isOriginMatch(env, origin) ? { "access-control-allow-origin": origin } : {}),
   };
 }
 
 function isAllowedOrigin(env: Env, request: Request): boolean {
-  const origin = request.headers.get("Origin");
-  if (!origin) return true;
-  return (env.FRONTEND_URL || "")
-    .split(",")
-    .map((value) => value.trim().replace(/\/$/, ""))
-    .filter(Boolean)
-    .includes(origin);
+  return isOriginMatch(env, request.headers.get("Origin"));
 }
 
 function withCors(response: Response, env: Env, request: Request): Response {
@@ -271,7 +286,8 @@ async function handleAdmin(request: Request, env: Env, pathname: string): Promis
       return json({ error: "Invalid admin password" }, 401);
     }
     await clearLoginFailures(env, address);
-    return json({ authenticated: true }, 200, {
+    const adminToken = await createSessionToken(env.SESSION_SECRET);
+    return json({ authenticated: true, token: adminToken }, 200, {
       "set-cookie": await sessionCookie(env.SESSION_SECRET, "none"),
     });
   }
@@ -582,6 +598,41 @@ async function resolveBotNumber(env: Env): Promise<string> {
   return "";
 }
 
+const ARABIC_TO_LATIN: Record<string, string> = {
+  ا: "a", أ: "a", إ: "i", آ: "a", ء: "",
+  ب: "b", ت: "t", ث: "th", ج: "j", ح: "h", خ: "kh",
+  د: "d", ذ: "dh", ر: "r", ز: "z", س: "s", ش: "sh",
+  ص: "s", ض: "d", ط: "t", ظ: "z", ع: "a", غ: "gh",
+  ف: "f", ق: "q", ك: "k", ل: "l", م: "m", ن: "n",
+  ه: "h", ة: "a", و: "w", ؤ: "u", ي: "y", ى: "a", ئ: "i",
+};
+
+function slugifyUsername(raw: string): string {
+  const transliterated = Array.from(raw.trim().toLowerCase())
+    .map((ch) => (ch in ARABIC_TO_LATIN ? ARABIC_TO_LATIN[ch] : ch))
+    .join("");
+  return (
+    transliterated
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/-{2,}/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 32) || "site"
+  );
+}
+
+async function resolveUniqueUsername(
+  env: Env,
+  rawDesired: string,
+  excludeWebsiteId?: string,
+): Promise<string> {
+  const baseSlug = slugifyUsername(rawDesired);
+  const existing = await getWebsiteByPublicId(env, baseSlug);
+  if (!existing || (excludeWebsiteId && existing.id === excludeWebsiteId)) {
+    return baseSlug;
+  }
+  return `${baseSlug.slice(0, 26)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 function publicAccountWebsite(website: WebsiteRow, visits: { today: number; total: number }) {
   return {
     id: website.id,
@@ -624,7 +675,15 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (await tooManyHits(env, `auth-start:${address}`, 12, 15 * 60)) {
       return json({ error: "Too many sign-in attempts. Try again in a few minutes." }, 429);
     }
-    const challenge = await createLoginChallenge(env, challengeTtlSeconds);
+    let bodyDeviceId = "";
+    try {
+      const parsed = await request.clone().json() as { deviceId?: string };
+      if (parsed && typeof parsed.deviceId === "string") bodyDeviceId = parsed.deviceId.trim();
+    } catch {
+      // body is optional on /api/auth/start
+    }
+    const deviceId = request.headers.get("X-Device-Id") || bodyDeviceId || undefined;
+    const challenge = await createLoginChallenge(env, challengeTtlSeconds, deviceId);
     return json(
       {
         id: challenge.id,
@@ -648,13 +707,84 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
         ? json({ status: "expired" }, 200, noStore)
         : json({ status: "pending" }, 200, noStore);
     }
-    // Verified by the bot: hand out exactly one session.
+    // Verified by the bot: hand out a persistent session token + cookie + account snapshot.
     const consumed = await consumeLoginChallenge(env, id);
     if (!consumed?.user_id) return json({ status: "expired" }, 200, noStore);
-    return json({ status: "authenticated" }, 200, {
-      ...noStore,
-      "set-cookie": await userSessionCookie(env.SESSION_SECRET, consumed.user_id),
-    });
+    const sessionToken = await createUserSessionToken(env.SESSION_SECRET, consumed.user_id);
+    const user = await getUserById(env, consumed.user_id);
+    const deviceId = request.headers.get("X-Device-Id") || consumed.device_id || challenge.device_id || "";
+    if (user && deviceId) {
+      await addTrustedDeviceForUser(env, user, deviceId);
+    }
+    const website = user ? await getLatestWebsite(env, user.id) : null;
+    const visits = website ? await getVisitStats(env, website.id) : { today: 0, total: 0 };
+    return json(
+      {
+        status: "authenticated",
+        sessionToken,
+        account: user
+          ? {
+              id: user.id,
+              phoneNumber: user.phone_number,
+              freeMessagesUsed: user.free_messages_used,
+              freeMessagesLimit: user.free_messages_limit,
+              createdAt: user.created_at,
+              website: website ? publicAccountWebsite(website, visits) : null,
+            }
+          : undefined,
+      },
+      200,
+      {
+        ...noStore,
+        "set-cookie": await userSessionCookie(env.SESSION_SECRET, consumed.user_id),
+      },
+    );
+  }
+
+  // Trusted-device re-authentication: if a user already verified via WhatsApp on this device,
+  // allow restoring their session token from Supabase without repeating WhatsApp verification.
+  if (pathname === "/api/auth/device" && request.method === "POST") {
+    if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
+    const body = await readJson(request);
+    const phone = typeof body.phone === "string" ? body.phone.replace(/[^\d]/g, "") : "";
+    const deviceId = (
+      typeof body.deviceId === "string"
+        ? body.deviceId
+        : request.headers.get("X-Device-Id") || ""
+    ).trim();
+    if (!phone || !deviceId) {
+      return json({ error: "Phone and deviceId are required" }, 400);
+    }
+    const user = await getUserByPhone(env, phone);
+    if (!user || user.blocked) {
+      return json({ error: "Device not verified for this phone" }, 401);
+    }
+    const trustedDevices = Array.isArray(user.trusted_devices) ? user.trusted_devices : [];
+    if (!trustedDevices.includes(deviceId)) {
+      return json({ error: "Device not verified for this phone" }, 401);
+    }
+    const sessionToken = await createUserSessionToken(env.SESSION_SECRET, user.id);
+    const website = await getLatestWebsite(env, user.id);
+    const visits = website ? await getVisitStats(env, website.id) : { today: 0, total: 0 };
+    return json(
+      {
+        status: "authenticated",
+        sessionToken,
+        account: {
+          id: user.id,
+          phoneNumber: user.phone_number,
+          freeMessagesUsed: user.free_messages_used,
+          freeMessagesLimit: user.free_messages_limit,
+          createdAt: user.created_at,
+          website: website ? publicAccountWebsite(website, visits) : null,
+        },
+      },
+      200,
+      {
+        "cache-control": "no-store",
+        "set-cookie": await userSessionCookie(env.SESSION_SECRET, user.id),
+      },
+    );
   }
 
   if (pathname === "/api/auth/logout" && request.method === "POST") {
@@ -697,31 +827,33 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     const validTemplates = new Set(["store", "restaurant", "services", "portfolio", "booking"]);
     const templateId = typeof body.templateId === "string" && validTemplates.has(body.templateId) ? body.templateId : "store";
     const themeColor = isHexColor(body.themeColor) ? body.themeColor : "#1D4ED8";
+    const showBranding = typeof body.showBranding === "boolean" ? body.showBranding : true;
     const rawStructure = body.jsonStructure && typeof body.jsonStructure === "object" && !Array.isArray(body.jsonStructure)
       ? (body.jsonStructure as Record<string, unknown>)
       : {};
     const filtered = filterSupportedStructureFields(rawStructure, templateId);
-    const clean = sanitizeStructure(filtered.structure, { imagePrefix: `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/website-images/`, existingImages: new Set() });
+    const clean = sanitizeStructure(filtered.structure, {
+      imagePrefix: `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/website-images/`,
+      existingImages: collectImageUrls(rawStructure),
+    });
     if ("templateStyle" in clean && !(STYLES as readonly string[]).includes(String(clean.templateStyle))) delete clean.templateStyle;
+    if ("darkMode" in clean) clean.darkMode = clean.darkMode === true;
 
     const existing = await getLatestWebsite(env, userId);
+    const desiredSlug = typeof body.username === "string" && body.username.trim() ? body.username.trim() : siteName;
+    const uniqueUsername = await resolveUniqueUsername(env, desiredSlug, existing?.id);
+
     if (existing) {
       const updated = await updateWebsite(env, existing.id, {
+        username: uniqueUsername,
         site_name: siteName,
         template_id: templateId,
         theme_color: themeColor,
         json_structure: clean,
+        show_branding: showBranding,
       });
       return json(fullAccountWebsite(updated), 200, { "cache-control": "no-store" });
     }
-
-    const baseSlug = (typeof body.username === "string" ? body.username : siteName)
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 32) || "site";
-    const uniqueUsername = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
 
     const created = await createWebsite(env, {
       user_id: userId,
@@ -730,9 +862,19 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
       template_id: templateId,
       theme_color: themeColor,
       json_structure: clean,
-      show_branding: true,
+      show_branding: showBranding,
     });
     return json(fullAccountWebsite(created), 201, { "cache-control": "no-store" });
+  }
+
+  if (pathname === "/api/me/website" && request.method === "DELETE") {
+    if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
+    const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
+    if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    const website = await getLatestWebsite(env, userId);
+    if (!website) return json({ error: "No website yet" }, 404, { "cache-control": "no-store" });
+    await deleteWebsite(env, website.id);
+    return json({ deleted: true }, 200, { "cache-control": "no-store" });
   }
 
   if (pathname === "/api/me/website" && (request.method === "GET" || request.method === "PATCH")) {
@@ -753,10 +895,37 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
       if (!value || value.length > 80) return json({ error: "Invalid site name" }, 400);
       siteName = value;
     }
+
+    const validTemplates = new Set(["store", "restaurant", "services", "portfolio", "booking"]);
+    let templateId = website.template_id;
+    if (body.templateId !== undefined) {
+      if (typeof body.templateId !== "string" || !validTemplates.has(body.templateId)) {
+        return json({ error: "Invalid templateId" }, 400);
+      }
+      templateId = body.templateId;
+    }
+
+    let username = website.username;
+    if (body.username !== undefined && typeof body.username === "string" && body.username.trim()) {
+      const candidate = slugifyUsername(body.username);
+      if (candidate !== website.username) {
+        const collision = await getWebsiteByPublicId(env, candidate);
+        if (collision && collision.id !== website.id) {
+          return json({ error: "الرابط المخصص مستخدم بالفعل، اختر رابطاً آخر." }, 409);
+        }
+        username = candidate;
+      }
+    }
+
     let themeColor = website.theme_color;
     if (body.themeColor !== undefined) {
       if (!isHexColor(body.themeColor)) return json({ error: "Invalid color" }, 400);
       themeColor = body.themeColor;
+    }
+
+    let showBranding = website.show_branding;
+    if (typeof body.showBranding === "boolean") {
+      showBranding = body.showBranding;
     }
 
     let structure = website.json_structure;
@@ -765,10 +934,10 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
       if (!body.jsonStructure || typeof body.jsonStructure !== "object" || Array.isArray(body.jsonStructure)) {
         return json({ error: "Invalid content" }, 400);
       }
-      const filtered = filterSupportedStructureFields(body.jsonStructure as Record<string, unknown>, website.template_id);
+      const filtered = filterSupportedStructureFields(body.jsonStructure as Record<string, unknown>, templateId);
       dropped = filtered.dropped;
-      // Images may only point into this site's own storage folder.
-      const imagePrefix = `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/website-images/${website.id}/`;
+      // Images may point into this site's storage folder or any existing valid image URL.
+      const imagePrefix = `${env.SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/website-images/`;
       const clean = sanitizeStructure(filtered.structure, { imagePrefix, existingImages: collectImageUrls(website.json_structure) });
       if ("templateStyle" in clean && !(STYLES as readonly string[]).includes(String(clean.templateStyle))) delete clean.templateStyle;
       if ("darkMode" in clean) clean.darkMode = clean.darkMode === true;
@@ -779,9 +948,11 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (JSON.stringify(structure).length > 400_000) return json({ error: "Content is too large" }, 413);
 
     const updated = await updateWebsiteIfUnchanged(env, website.id, baseUpdatedAt, {
+      username,
       site_name: siteName,
-      template_id: website.template_id,
+      template_id: templateId,
       theme_color: themeColor,
+      show_branding: showBranding,
       json_structure: structure,
     });
     if (!updated) {
@@ -789,6 +960,98 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
       return json({ error: "conflict", updatedAt: latest?.updated_at ?? null }, 409);
     }
     return json({ ...fullAccountWebsite(updated), droppedFields: dropped }, 200, { "cache-control": "no-store" });
+  }
+
+  // Real database-backed conversation history for the logged-in user
+  if (pathname === "/api/me/messages" && request.method === "GET") {
+    const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
+    if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    const page = await getConversationMessagesPage(env, userId, { limit: 30 });
+    return json(
+      {
+        messages: page.slice().reverse().map(publicMessage),
+      },
+      200,
+      { "cache-control": "no-store" },
+    );
+  }
+
+  // Real database-backed assistant command handler for the dashboard
+  if (pathname === "/api/me/assistant" && request.method === "POST") {
+    if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
+    const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
+    if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    const user = await getUserById(env, userId);
+    if (!user) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    const body = await readJson(request);
+    const command = typeof body.message === "string" ? cleanString(body.message).trim() : "";
+    if (!command || command.length > 2000) return json({ error: "Invalid message" }, 400);
+
+    await addConversationMessage(env, user.id, "inbound", command).catch(() => {});
+
+    const website = await getLatestWebsite(env, user.id);
+    const visits = website ? await getVisitStats(env, website.id) : { today: 0, total: 0 };
+    let reply = "";
+    let updatedWebsite: WebsiteRow | null = website;
+
+    if (command.includes("زائر") || command.includes("إحصائيات") || command.includes("زيارات")) {
+      if (!website) {
+        reply = "لم تقم بإنشاء موقع بعد. أنشئ موقعك أولاً من قسم «خدماتي وموقعي» لبدء تتبع الزيارات الفعلية.";
+      } else {
+        const colKey = templateCollection(website.template_id).key;
+        const rawList = website.json_structure?.[colKey];
+        const count = Array.isArray(rawList) ? rawList.length : 0;
+        reply = `📊 إحصائيات موقعك «${website.site_name}» من قاعدة البيانات:\n• زيارات اليوم: ${visits.today} زيارة\n• إجمالي الزيارات الكلي: ${visits.total} زيارة\n• عدد العناصر المنشورة حالياً: ${count}\n• الرصيد المتبقي من رسائل المساعد: ${Math.max(0, user.free_messages_limit - user.free_messages_used)} رسالة.`;
+      }
+    } else if (
+      website &&
+      (command.startsWith("أضف ") || command.startsWith("اضف ") || command.includes("أضف طبق") || command.includes("أضف منتج") || command.includes("أضف خدمة"))
+    ) {
+      const col = templateCollection(website.template_id);
+      const existingList = Array.isArray(website.json_structure?.[col.key])
+        ? [...(website.json_structure[col.key] as Array<Record<string, unknown>>)]
+        : [];
+      const cleanedText = command
+        .replace(/^(أضف|اضف)\s*(طبق اليوم|طبق|منتج|خدمة|مشروع)?\s*:?\s*/i, "")
+        .trim();
+      const priceMatch = cleanedText.match(/(\d+(?:\.\d+)?\s*(?:ر\.س|ريال|SAR|\$)?)$/i);
+      const itemName = priceMatch ? cleanedText.slice(0, priceMatch.index).trim() || cleanedText : cleanedText;
+      const itemPrice = priceMatch ? priceMatch[1].trim() : undefined;
+      const newItem: Record<string, unknown> =
+        website.template_id === "portfolio"
+          ? { title: itemName, description: "" }
+          : { name: itemName, ...(itemPrice ? { price: itemPrice } : {}), description: "" };
+      existingList.push(newItem);
+      const nextStructure = { ...website.json_structure, [col.key]: existingList };
+      updatedWebsite = await updateWebsite(env, website.id, { json_structure: nextStructure });
+      reply = `✅ تم حفظ «${itemName}»${itemPrice ? ` (${itemPrice})` : ""} في قاعدة بيانات موقعك «${website.site_name}» بنجاح!`;
+    } else if (website && (command.includes("أوقات العمل") || command.includes("ساعات العمل") || command.includes("الدوام"))) {
+      const hoursText = command.replace(/^.*?(أوقات العمل الجديدة|أوقات العمل|ساعات العمل|الدوام)\s*:?\s*/i, "").trim();
+      const nextHours = [{ day: "أوقات العمل", time: hoursText || command }];
+      const nextStructure = { ...website.json_structure, hours: nextHours };
+      updatedWebsite = await updateWebsite(env, website.id, { json_structure: nextStructure });
+      reply = `⏰ تم تحديث ساعات العمل في قاعدة البيانات لموقعك «${website.site_name}» إلى: ${hoursText || command}`;
+    } else if (website && (command.startsWith("وصف:") || command.startsWith("نبذة:") || command.startsWith("العنوان:"))) {
+      const newDesc = command.replace(/^(وصف|نبذة|العنوان)\s*:\s*/i, "").trim();
+      const nextStructure = { ...website.json_structure, description: newDesc, tagline: newDesc.slice(0, 120) };
+      updatedWebsite = await updateWebsite(env, website.id, { json_structure: nextStructure });
+      reply = `✨ تم تحديث وصف موقعك «${website.site_name}» في قاعدة البيانات بنجاح.`;
+    } else {
+      reply = website
+        ? `مرحباً بك! موقعك المتصل هو «${website.site_name}».\nيمكنك إرسال أوامر مباشرة مثل:\n• "كم زائر اليوم؟" لعرض الزيارات الحقيقية من قاعدة البيانات\n• "أضف منتج: قهوة مختصة 25 ر.س" لإضافة عنصر فوراً\n• "أوقات العمل: 9 صباحاً - 11 مساءً" لتحديث ساعات الدوام\n• "وصف: نص الوصف الجديد" لتحديث نبذة الموقع.`
+        : "مرحباً بك! أنشئ موقعك أولاً من قسم «خدماتي وموقعي»، وبعدها يمكنك استخدام المساعد السريع لإضافة المنتجات، تحديث ساعات العمل، أو الاستعلام عن الزيارات الحقيقية.";
+    }
+
+    const savedOutbound = await addConversationMessage(env, user.id, "outbound", reply).catch(() => null);
+    return json(
+      {
+        reply,
+        message: savedOutbound ? publicMessage(savedOutbound) : null,
+        website: updatedWebsite ? fullAccountWebsite(updatedWebsite) : null,
+      },
+      200,
+      { "cache-control": "no-store" },
+    );
   }
 
   if (pathname === "/api/me/uploads" && request.method === "POST") {

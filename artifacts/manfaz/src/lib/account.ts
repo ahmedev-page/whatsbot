@@ -64,6 +64,28 @@ const PENDING_PHONE_KEY = 'orxai_pending_phone';
 const PENDING_CHALLENGE_KEY = 'orxai_pending_challenge';
 const VERIFIED_CHALLENGES_KEY = 'orxai_verified_challenges';
 
+const ARABIC_TO_LATIN: Record<string, string> = {
+  ا: 'a', أ: 'a', إ: 'i', آ: 'a', ء: '',
+  ب: 'b', ت: 't', ث: 'th', ج: 'j', ح: 'h', خ: 'kh',
+  د: 'd', ذ: 'dh', ر: 'r', ز: 'z', س: 's', ش: 'sh',
+  ص: 's', ض: 'd', ط: 't', ظ: 'z', ع: 'a', غ: 'gh',
+  ف: 'f', ق: 'q', ك: 'k', ل: 'l', م: 'm', ن: 'n',
+  ه: 'h', ة: 'a', و: 'w', ؤ: 'u', ي: 'y', ى: 'a', ئ: 'i',
+};
+
+export function slugifyUsername(raw: string): string {
+  const transliterated = Array.from(raw.trim().toLowerCase())
+    .map((ch) => (ch in ARABIC_TO_LATIN ? ARABIC_TO_LATIN[ch] : ch))
+    .join('');
+  return (
+    transliterated
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32) || `site-${Date.now().toString(36)}`
+  );
+}
+
 export function normalizePhoneNumber(raw: string): string {
   let cleaned = raw.replace(/[^\d]/g, '');
   if (cleaned.startsWith('00')) {
@@ -150,6 +172,32 @@ export function loginWithTrustedDevice(phoneInput?: string): Account | null {
   return trusted;
 }
 
+export async function loginWithTrustedDeviceServer(phoneInput?: string): Promise<Account | null> {
+  const targetPhone = phoneInput ? normalizePhoneNumber(phoneInput) : getLastVerifiedPhone();
+  if (!targetPhone) return null;
+  const deviceId = getOrCreateDeviceId();
+  try {
+    const res = await accountFetch<{
+      status: LoginStatus;
+      sessionToken?: string;
+      account?: Account;
+    }>('/api/auth/device', {
+      method: 'POST',
+      body: JSON.stringify({ phone: targetPhone, deviceId }),
+    });
+    if (res.status === 'authenticated' && res.account) {
+      if (res.sessionToken) {
+        saveSessionToken(res.sessionToken);
+      }
+      saveLocalAccount(res.account);
+      return res.account;
+    }
+  } catch {
+    // Fallback to local trusted device record if offline or backend not yet deployed
+  }
+  return loginWithTrustedDevice(targetPhone);
+}
+
 export function getLocalAccount(): Account | null {
   if (typeof window === 'undefined') {
     return null;
@@ -216,7 +264,7 @@ export function registerOrLoginWithPhone(phoneInput: string): Account {
     id: `usr_${Date.now().toString(36)}`,
     phoneNumber: cleanPhone,
     freeMessagesUsed: 0,
-    freeMessagesLimit: 50,
+    freeMessagesLimit: 40,
     createdAt: new Date().toISOString(),
     website: null,
   };
@@ -263,7 +311,7 @@ export function getLocalSiteDocument(): SiteDocument | null {
   return null;
 }
 
-export function saveLocalSiteDocument(doc: SiteDocument): void {
+export function saveLocalSiteDocument(doc: SiteDocument, previousUsername?: string): void {
   if (typeof window === 'undefined') return;
   const storedSites = localStorage.getItem(LOCAL_SITES_KEY);
   let sites: Record<string, SiteDocument> = {};
@@ -274,6 +322,9 @@ export function saveLocalSiteDocument(doc: SiteDocument): void {
       sites = {};
     }
   }
+  if (previousUsername && previousUsername !== doc.username) {
+    delete sites[previousUsername];
+  }
   sites[doc.username] = doc;
   localStorage.setItem(LOCAL_SITES_KEY, JSON.stringify(sites));
   localStorage.setItem(LOCAL_LATEST_SITE_KEY, JSON.stringify(doc));
@@ -281,9 +332,11 @@ export function saveLocalSiteDocument(doc: SiteDocument): void {
   // Always ensure a local account exists and sync the website summary back to it
   let account = getLocalAccount();
   if (!account) {
+    const contactObj = doc.jsonStructure?.contact as Record<string, unknown> | undefined;
     const fallbackPhone =
       getLastVerifiedPhone() ||
-      (typeof doc.jsonStructure?.phone === 'string' && doc.jsonStructure.phone) ||
+      (typeof contactObj?.whatsapp === 'string' && contactObj.whatsapp) ||
+      (typeof contactObj?.phone === 'string' && contactObj.phone) ||
       '966500000000';
     account = registerOrLoginWithPhone(fallbackPhone);
   }
@@ -297,10 +350,30 @@ export function saveLocalSiteDocument(doc: SiteDocument): void {
     showBranding: doc.showBranding,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt || new Date().toISOString(),
-    visitsToday: account.website?.visitsToday || 12,
-    visitsTotal: account.website?.visitsTotal || 240,
+    visitsToday: account.website?.visitsToday ?? 0,
+    visitsTotal: account.website?.visitsTotal ?? 0,
   };
   saveLocalAccount(account);
+}
+
+export function clearLocalSiteDocument(): void {
+  if (typeof window === 'undefined') return;
+  const account = getLocalAccount();
+  const storedSites = localStorage.getItem(LOCAL_SITES_KEY);
+  if (storedSites && account?.website?.username) {
+    try {
+      const sites = JSON.parse(storedSites) as Record<string, SiteDocument>;
+      delete sites[account.website.username];
+      localStorage.setItem(LOCAL_SITES_KEY, JSON.stringify(sites));
+    } catch {
+      // ignore
+    }
+  }
+  localStorage.removeItem(LOCAL_LATEST_SITE_KEY);
+  if (account) {
+    account.website = null;
+    saveLocalAccount(account);
+  }
 }
 
 export function getLocalWebsiteByUsername(username: string): SiteDocument | null {
@@ -315,61 +388,149 @@ export function getLocalWebsiteByUsername(username: string): SiteDocument | null
   }
 }
 
+export interface InitialCollectionItemInput {
+  name?: string;
+  title?: string;
+  price?: string;
+  duration?: string;
+  category?: string;
+  description?: string;
+  image?: string;
+}
+
 export interface CreateInPlatformInput {
   siteName: string;
+  username?: string;
   templateId: string;
   templateStyle?: SiteStyle;
   themeColor?: string;
+  darkMode?: boolean;
+  showBranding?: boolean;
+  tagline?: string;
+  headline?: string;
   description?: string;
+  ctaLabel?: string;
   phone?: string;
-  initialItems?: Array<{ name: string; price?: string; description?: string }>;
+  whatsapp?: string;
+  email?: string;
+  address?: string;
+  socialLinks?: {
+    instagram?: string;
+    twitter?: string;
+    tiktok?: string;
+    snapchat?: string;
+    facebook?: string;
+  };
+  hours?: Array<{ day: string; time: string }>;
+  initialItems?: InitialCollectionItemInput[];
+  skills?: string[];
+  steps?: Array<{ title: string; description?: string }>;
+  quote?: string;
+  projectsCount?: string;
 }
 
 export async function createWebsiteInPlatform(input: CreateInPlatformInput): Promise<SiteDocument> {
-  const slug = input.siteName
-    .trim()
-    .toLowerCase()
-    .replace(/[^\w\u0621-\u064A]+/g, '-')
-    .replace(/^-+|-+$/g, '') || `site-${Date.now().toString(36)}`;
+  const slug = slugifyUsername(input.username?.trim() || input.siteName);
 
   const templateStyle = input.templateStyle || 'modern';
   const themeColor = input.themeColor || '#1D4ED8';
-  const collectionKey = input.templateId === 'services' || input.templateId === 'booking' ? 'services' : input.templateId === 'portfolio' ? 'projects' : 'items';
+  const collectionKey =
+    input.templateId === 'services' || input.templateId === 'booking'
+      ? 'services'
+      : input.templateId === 'portfolio'
+      ? 'projects'
+      : 'items';
 
-  const defaultItems = input.initialItems && input.initialItems.length > 0
-    ? input.initialItems
-    : [
-        { name: 'الباقة أو الخدمة الأولى', price: '150 ر.س', description: 'وصف توضيحي مميز للخدمة أو المنتج المقدم.' },
-        { name: 'الباقة أو الخدمة المميزة', price: '290 ر.س', description: 'الخيار الأكثر طلباً من قبل عملائنا.' },
-        { name: 'الخيار المتقدم المتكامل', price: '450 ر.س', description: 'حل متكامل وشامل لتلبية جميع احتياجاتك.' },
-      ];
+  const activeWhatsapp =
+    input.whatsapp?.trim() ||
+    input.phone?.trim() ||
+    getLocalAccount()?.phoneNumber ||
+    getLastVerifiedPhone() ||
+    '';
+  const activePhone = input.phone?.trim() || activeWhatsapp;
 
-  const activePhone = input.phone || getLocalAccount()?.phoneNumber || getLastVerifiedPhone() || '';
+  const cleanItems = (input.initialItems ?? [])
+    .filter((item) => (item.name && item.name.trim()) || (item.title && item.title.trim()))
+    .map((item) => {
+      const label = (item.name || item.title || '').trim();
+      if (input.templateId === 'portfolio') {
+        return {
+          title: label,
+          ...(item.category?.trim() ? { category: item.category.trim() } : {}),
+          ...(item.description?.trim() ? { description: item.description.trim() } : {}),
+          ...(item.image?.trim() ? { image: item.image.trim() } : {}),
+        };
+      }
+      return {
+        name: label,
+        ...(item.price?.trim() ? { price: item.price.trim() } : {}),
+        ...(item.duration?.trim() ? { duration: item.duration.trim() } : {}),
+        ...(item.category?.trim() ? { category: item.category.trim() } : {}),
+        ...(item.description?.trim() ? { description: item.description.trim() } : {}),
+        ...(item.image?.trim() ? { image: item.image.trim() } : {}),
+      };
+    });
+
+  const cleanHours = (input.hours ?? []).filter(
+    (entry) => entry.day.trim() || entry.time.trim()
+  );
+
+  const contact: Record<string, string> = {};
+  if (activePhone) contact.phone = activePhone;
+  if (activeWhatsapp) contact.whatsapp = activeWhatsapp;
+  if (input.email?.trim()) contact.email = input.email.trim();
+  if (input.address?.trim()) contact.address = input.address.trim();
+
+  const socialLinks: Record<string, string> = {};
+  if (input.socialLinks?.instagram?.trim()) socialLinks.instagram = input.socialLinks.instagram.trim();
+  if (input.socialLinks?.twitter?.trim()) socialLinks.twitter = input.socialLinks.twitter.trim();
+  if (input.socialLinks?.tiktok?.trim()) socialLinks.tiktok = input.socialLinks.tiktok.trim();
+  if (input.socialLinks?.snapchat?.trim()) socialLinks.snapchat = input.socialLinks.snapchat.trim();
+  if (input.socialLinks?.facebook?.trim()) socialLinks.facebook = input.socialLinks.facebook.trim();
+
+  const defaultCta =
+    input.templateId === 'booking'
+      ? 'احجز الآن'
+      : input.templateId === 'restaurant'
+      ? 'شاهد المنيو واطلب'
+      : input.templateId === 'portfolio'
+      ? 'تواصل معي'
+      : 'تواصل واطلب الآن';
 
   const jsonStructure: Record<string, unknown> = {
-    tagline: input.description || 'مرحباً بكم في موقعنا الرسمي الجديد',
-    description: input.description || 'يسعدنا خدمتكم بأعلى جودة واحترافية على مدار الساعة.',
-    ctaLabel: input.templateId === 'booking' ? 'احجز الآن' : input.templateId === 'restaurant' ? 'شاهد المنيو واطلب' : 'تواصل واطلب الآن',
-    phone: activePhone,
+    tagline: input.tagline?.trim() || input.description?.trim() || '',
+    headline: input.headline?.trim() || input.siteName.trim(),
+    description: input.description?.trim() || '',
+    ctaLabel: input.ctaLabel?.trim() || defaultCta,
     templateStyle,
-    [collectionKey]: defaultItems,
-    workingHours: [
-      { day: 'السبت - الخميس', time: '9:00 ص - 10:00 م' },
-    ],
-    address: 'المملكة العربية السعودية',
-    socialLinks: {
-      whatsapp: activePhone,
-    },
+    darkMode: input.darkMode === true || templateStyle === 'cinematic',
+    contact,
+    socialLinks,
+    hours: cleanHours,
+    [collectionKey]: cleanItems,
+    ...(input.templateId === 'portfolio' && input.skills && input.skills.length > 0
+      ? { skills: input.skills.filter((s) => s.trim()) }
+      : {}),
+    ...(input.templateId === 'portfolio' && input.quote?.trim()
+      ? { quote: input.quote.trim() }
+      : {}),
+    ...(input.templateId === 'portfolio' && input.projectsCount?.trim()
+      ? { projectsCount: input.projectsCount.trim() }
+      : {}),
+    ...(input.templateId === 'booking' && input.steps && input.steps.length > 0
+      ? { steps: input.steps.filter((s) => s.title.trim()) }
+      : {}),
   };
 
   try {
     const serverCreated = await accountFetch<SiteDocument>('/api/me/website', {
       method: 'POST',
       body: JSON.stringify({
-        siteName: input.siteName,
+        siteName: input.siteName.trim(),
         username: slug,
         templateId: input.templateId,
         themeColor,
+        showBranding: input.showBranding ?? true,
         jsonStructure,
       }),
     });
@@ -378,22 +539,16 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
   } catch {
     let account = getLocalAccount();
     if (!account) {
-      account = registerOrLoginWithPhone(activePhone || '966500000000');
+      account = registerOrLoginWithPhone(activeWhatsapp || '966500000000');
     }
     const doc: SiteDocument = {
       id: `site-${Date.now().toString(36)}`,
       username: slug,
-      siteName: input.siteName,
+      siteName: input.siteName.trim(),
       templateId: input.templateId,
       themeColor,
-      jsonStructure: {
-        ...jsonStructure,
-        phone: activePhone || account.phoneNumber,
-        socialLinks: {
-          whatsapp: activePhone || account.phoneNumber,
-        },
-      },
-      showBranding: true,
+      jsonStructure,
+      showBranding: input.showBranding ?? true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       collectionKey,
@@ -461,7 +616,6 @@ export function useAccount() {
         const remote = await accountFetch<Account>('/api/me');
         const local = getLocalAccount();
         const localSite = getLocalSiteDocument();
-        // If user created a site locally (e.g. before Worker update) and remote has no website yet, preserve local website
         const merged: Account = {
           ...remote,
           website:
@@ -478,8 +632,8 @@ export function useAccount() {
                   showBranding: localSite.showBranding,
                   createdAt: localSite.createdAt,
                   updatedAt: localSite.updatedAt,
-                  visitsToday: 12,
-                  visitsTotal: 240,
+                  visitsToday: 0,
+                  visitsTotal: 0,
                 }
               : null),
         };
@@ -554,13 +708,17 @@ export function isChallengeVerified(challengeId: string): boolean {
 
 export function startLogin(phoneNumber?: string): Promise<LoginChallenge> {
   const cleanPhone = phoneNumber ? normalizePhoneNumber(phoneNumber) : '';
+  const deviceId = getOrCreateDeviceId();
   if (cleanPhone && typeof window !== 'undefined') {
     sessionStorage.setItem(PENDING_PHONE_KEY, cleanPhone);
     localStorage.setItem(PENDING_PHONE_KEY, cleanPhone);
   }
   return accountFetch<LoginChallenge>('/api/auth/start', {
     method: 'POST',
-    body: cleanPhone ? JSON.stringify({ phone: cleanPhone }) : undefined,
+    body: JSON.stringify({
+      ...(cleanPhone ? { phone: cleanPhone } : {}),
+      deviceId,
+    }),
   }).catch(() => {
     // Fallback local challenge only when backend API is unconfigured (preview mode)
     const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -630,7 +788,6 @@ export async function pollLogin(id: string): Promise<LoginStatus> {
         };
         saveLocalAccount(merged);
       } else {
-        // Fallback when Worker doesn't include account in /api/auth/status response
         const pendingPhone = resolvePendingPhone();
         const acct = registerOrLoginWithPhone(pendingPhone);
         saveTrustedDeviceAccount(acct);
@@ -681,8 +838,11 @@ export interface SiteDocument {
 
 export interface SaveSiteInput {
   baseUpdatedAt: string;
+  username?: string;
   siteName?: string;
+  templateId?: string;
   themeColor?: string;
+  showBranding?: boolean;
   jsonStructure?: Record<string, unknown>;
 }
 
@@ -710,25 +870,41 @@ export function useSaveSite() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: SaveSiteInput) => {
+      const current = getLocalSiteDocument();
       try {
         const res = await accountFetch<SiteDocument & { droppedFields: string[] }>('/api/me/website', {
           method: 'PATCH',
           body: JSON.stringify(input),
         });
-        saveLocalSiteDocument(res);
+        saveLocalSiteDocument(res, current?.username);
         return res;
       } catch (err) {
+        if (err instanceof ApiError && err.status === 409) throw err;
         // Save locally when backend endpoint is unavailable
-        const current = getLocalSiteDocument();
         if (!current) throw err;
+        const nextTemplate = input.templateId || current.templateId;
+        const nextCollectionKey =
+          nextTemplate === 'services' || nextTemplate === 'booking'
+            ? 'services'
+            : nextTemplate === 'portfolio'
+            ? 'projects'
+            : 'items';
+        const nextUsername = input.username?.trim()
+          ? slugifyUsername(input.username)
+          : current.username;
         const updated: SiteDocument = {
           ...current,
+          username: nextUsername,
           siteName: input.siteName || current.siteName,
+          templateId: nextTemplate,
+          collectionKey: nextCollectionKey,
           themeColor: input.themeColor || current.themeColor,
+          showBranding:
+            typeof input.showBranding === 'boolean' ? input.showBranding : current.showBranding,
           jsonStructure: input.jsonStructure || current.jsonStructure,
           updatedAt: new Date().toISOString(),
         };
-        saveLocalSiteDocument(updated);
+        saveLocalSiteDocument(updated, current.username);
         return { ...updated, droppedFields: [] };
       }
     },
@@ -738,6 +914,184 @@ export function useSaveSite() {
       if (updatedAccount) {
         queryClient.setQueryData(accountQueryKey, updatedAccount);
       }
+    },
+  });
+}
+
+export function useDeleteSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      try {
+        await accountFetch<{ deleted: boolean }>('/api/me/website', { method: 'DELETE' });
+      } catch {
+        // Proceed with local cleanup if backend unavailable
+      }
+      clearLocalSiteDocument();
+      return { deleted: true };
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(siteQueryKey, null);
+      const updatedAccount = getLocalAccount();
+      if (updatedAccount) {
+        queryClient.setQueryData(accountQueryKey, { ...updatedAccount, website: null });
+      }
+      void queryClient.invalidateQueries({ queryKey: accountQueryKey });
+    },
+  });
+}
+
+export interface AccountConversationMessage {
+  id: number;
+  direction: 'inbound' | 'outbound';
+  content: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export const accountMessagesQueryKey = ['account', 'messages'] as const;
+
+export function useAccountMessages() {
+  return useQuery({
+    queryKey: accountMessagesQueryKey,
+    queryFn: async () => {
+      try {
+        const res = await accountFetch<{ messages: AccountConversationMessage[] }>('/api/me/messages');
+        return res.messages;
+      } catch {
+        return [] as AccountConversationMessage[];
+      }
+    },
+    retry: false,
+    staleTime: 15_000,
+  });
+}
+
+export function useSendAssistantCommand() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (message: string) => {
+      try {
+        const res = await accountFetch<{
+          reply: string;
+          message: AccountConversationMessage | null;
+          website: SiteDocument | null;
+        }>('/api/me/assistant', {
+          method: 'POST',
+          body: JSON.stringify({ message }),
+        });
+        if (res.website) {
+          saveLocalSiteDocument(res.website);
+        }
+        return res;
+      } catch {
+        // Local execution fallback when offline or previewing without Worker
+        const account = getLocalAccount();
+        const doc = getLocalSiteDocument();
+        let reply = '';
+        let updatedDoc = doc;
+
+        if (message.includes('زائر') || message.includes('إحصائيات') || message.includes('زيارات')) {
+          if (!doc) {
+            reply = 'لم تقم بإنشاء موقع بعد. أنشئ موقعك أولاً من قسم «خدماتي وموقعي» لبدء تتبع الزيارات الفعلية.';
+          } else {
+            const colKey = doc.collectionKey || 'items';
+            const list = Array.isArray(doc.jsonStructure?.[colKey])
+              ? (doc.jsonStructure[colKey] as unknown[]).length
+              : 0;
+            const today = account?.website?.visitsToday ?? 0;
+            const total = account?.website?.visitsTotal ?? 0;
+            const remaining = Math.max(
+              0,
+              (account?.freeMessagesLimit ?? 40) - (account?.freeMessagesUsed ?? 0)
+            );
+            reply = `📊 إحصائيات موقعك «${doc.siteName}»:\n• زيارات اليوم: ${today} زيارة\n• إجمالي الزيارات الكلي: ${total} زيارة\n• عدد العناصر المنشورة حالياً: ${list}\n• الرصيد المتبقي من رسائل المساعد: ${remaining} رسالة.`;
+          }
+        } else if (
+          doc &&
+          (message.startsWith('أضف ') ||
+            message.startsWith('اضف ') ||
+            message.includes('أضف طبق') ||
+            message.includes('أضف منتج') ||
+            message.includes('أضف خدمة'))
+        ) {
+          const colKey = doc.collectionKey || 'items';
+          const existingList = Array.isArray(doc.jsonStructure?.[colKey])
+            ? [...(doc.jsonStructure[colKey] as Array<Record<string, unknown>>)]
+            : [];
+          const cleanedText = message
+            .replace(/^(أضف|اضف)\s*(طبق اليوم|طبق|منتج|خدمة|مشروع)?\s*:?\s*/i, '')
+            .trim();
+          const priceMatch = cleanedText.match(/(\d+(?:\.\d+)?\s*(?:ر\.س|ريال|SAR|\$)?)$/i);
+          const itemName = priceMatch
+            ? cleanedText.slice(0, priceMatch.index).trim() || cleanedText
+            : cleanedText;
+          const itemPrice = priceMatch ? priceMatch[1].trim() : undefined;
+          const newItem: Record<string, unknown> =
+            doc.templateId === 'portfolio'
+              ? { title: itemName, description: '' }
+              : { name: itemName, ...(itemPrice ? { price: itemPrice } : {}), description: '' };
+          existingList.push(newItem);
+          updatedDoc = {
+            ...doc,
+            jsonStructure: { ...doc.jsonStructure, [colKey]: existingList },
+            updatedAt: new Date().toISOString(),
+          };
+          saveLocalSiteDocument(updatedDoc);
+          reply = `✅ تم حفظ «${itemName}»${itemPrice ? ` (${itemPrice})` : ''} في موقعك «${doc.siteName}» بنجاح!`;
+        } else if (
+          doc &&
+          (message.includes('أوقات العمل') || message.includes('ساعات العمل') || message.includes('الدوام'))
+        ) {
+          const hoursText = message
+            .replace(/^.*?(أوقات العمل الجديدة|أوقات العمل|ساعات العمل|الدوام)\s*:?\s*/i, '')
+            .trim();
+          const nextHours = [{ day: 'أوقات العمل', time: hoursText || message }];
+          updatedDoc = {
+            ...doc,
+            jsonStructure: { ...doc.jsonStructure, hours: nextHours },
+            updatedAt: new Date().toISOString(),
+          };
+          saveLocalSiteDocument(updatedDoc);
+          reply = `⏰ تم تحديث ساعات العمل لموقعك «${doc.siteName}» إلى: ${hoursText || message}`;
+        } else if (
+          doc &&
+          (message.startsWith('وصف:') || message.startsWith('نبذة:') || message.startsWith('العنوان:'))
+        ) {
+          const newDesc = message.replace(/^(وصف|نبذة|العنوان)\s*:\s*/i, '').trim();
+          updatedDoc = {
+            ...doc,
+            jsonStructure: {
+              ...doc.jsonStructure,
+              description: newDesc,
+              tagline: newDesc.slice(0, 120),
+            },
+            updatedAt: new Date().toISOString(),
+          };
+          saveLocalSiteDocument(updatedDoc);
+          reply = `✨ تم تحديث وصف موقعك «${doc.siteName}» بنجاح.`;
+        } else {
+          reply = doc
+            ? `مرحباً بك! موقعك المتصل هو «${doc.siteName}».\nيمكنك إرسال أوامر مباشرة مثل:\n• "كم زائر اليوم؟" لعرض الزيارات الحقيقية\n• "أضف منتج: قهوة مختصة 25 ر.س" لإضافة عنصر فوراً\n• "أوقات العمل: 9 صباحاً - 11 مساءً" لتحديث ساعات الدوام\n• "وصف: نص الوصف الجديد" لتحديث نبذة الموقع.`
+            : 'مرحباً بك! أنشئ موقعك أولاً من قسم «خدماتي وموقعي»، وبعدها يمكنك استخدام المساعد السريع لإضافة المنتجات، تحديث ساعات العمل، أو الاستعلام عن الزيارات الحقيقية.';
+        }
+
+        return {
+          reply,
+          message: null,
+          website: updatedDoc,
+        };
+      }
+    },
+    onSuccess: (res) => {
+      if (res.website) {
+        queryClient.setQueryData(siteQueryKey, res.website);
+        const updatedAccount = getLocalAccount();
+        if (updatedAccount) {
+          queryClient.setQueryData(accountQueryKey, updatedAccount);
+        }
+      }
+      void queryClient.invalidateQueries({ queryKey: accountMessagesQueryKey });
     },
   });
 }

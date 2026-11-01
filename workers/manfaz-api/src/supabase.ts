@@ -156,6 +156,7 @@ export interface LoginChallengeRow {
   status: "pending" | "verified" | "consumed";
   phone_number: string | null;
   user_id: string | null;
+  device_id?: string | null;
   created_at: string;
   expires_at: string;
   verified_at: string | null;
@@ -170,13 +171,27 @@ export function generateLoginCode(): string {
   return `ORX-${Array.from(bytes, (value) => CODE_ALPHABET[value % CODE_ALPHABET.length]).join("")}`;
 }
 
-export async function createLoginChallenge(env: Env, ttlSeconds: number): Promise<LoginChallengeRow> {
+export async function createLoginChallenge(
+  env: Env,
+  ttlSeconds: number,
+  deviceId?: string | null,
+): Promise<LoginChallengeRow> {
+  const code = generateLoginCode();
+  const expires_at = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+  if (deviceId) {
+    try {
+      const rows = await supabaseRequest<LoginChallengeRow[]>(env, "login_challenges", {
+        method: "POST",
+        body: JSON.stringify({ code, expires_at, device_id: deviceId }),
+      });
+      if (rows[0]) return rows[0];
+    } catch {
+      // Fallback if migration 017 (device_id column) hasn't been applied yet
+    }
+  }
   const rows = await supabaseRequest<LoginChallengeRow[]>(env, "login_challenges", {
     method: "POST",
-    body: JSON.stringify({
-      code: generateLoginCode(),
-      expires_at: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
-    }),
+    body: JSON.stringify({ code, expires_at }),
   });
   if (!rows[0]) throw new Error("Login challenge creation returned no row");
   return rows[0];
@@ -232,6 +247,36 @@ export async function getUserById(env: Env, id: string): Promise<UserRow | null>
   return rows[0] ?? null;
 }
 
+export async function getUserByPhone(env: Env, phone: string): Promise<UserRow | null> {
+  const rows = await supabaseRequest<UserRow[]>(
+    env,
+    `users?phone_number=eq.${encodeURIComponent(phone)}&select=*&limit=1`,
+  );
+  return rows[0] ?? null;
+}
+
+export async function addTrustedDeviceForUser(
+  env: Env,
+  user: UserRow,
+  deviceId: string,
+): Promise<void> {
+  if (!deviceId || deviceId.length < 6) return;
+  const existing = Array.isArray(user.trusted_devices)
+    ? user.trusted_devices.filter((d): d is string => typeof d === "string")
+    : [];
+  if (existing.includes(deviceId)) return;
+  const next = [...existing.slice(-9), deviceId];
+  try {
+    await supabaseRequest(env, `users?id=eq.${encodeURIComponent(user.id)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ trusted_devices: next }),
+    });
+  } catch {
+    // Gracefully ignore if migration 017 hasn't been run yet
+  }
+}
+
 export async function createWebsite(
   env: Env,
   data: Omit<WebsiteRow, "id" | "user_id" | "public_id" | "created_at" | "updated_at"> & {
@@ -257,7 +302,7 @@ export async function createWebsite(
 export async function updateWebsite(
   env: Env,
   websiteId: string,
-  data: Pick<WebsiteRow, "site_name" | "template_id" | "theme_color" | "json_structure">,
+  data: Partial<Pick<WebsiteRow, "username" | "site_name" | "template_id" | "theme_color" | "json_structure" | "show_branding">>,
 ): Promise<WebsiteRow> {
   const rows = await supabaseRequest<WebsiteRow[]>(env, `websites?id=eq.${encodeURIComponent(websiteId)}`, {
     method: "PATCH",
@@ -275,7 +320,7 @@ export async function updateWebsiteIfUnchanged(
   env: Env,
   websiteId: string,
   expectedUpdatedAt: string,
-  data: Pick<WebsiteRow, "site_name" | "template_id" | "theme_color" | "json_structure">,
+  data: Partial<Pick<WebsiteRow, "username" | "site_name" | "template_id" | "theme_color" | "json_structure" | "show_branding">>,
 ): Promise<WebsiteRow | null> {
   const rows = await supabaseRequest<WebsiteRow[]>(
     env,

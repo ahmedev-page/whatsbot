@@ -48,6 +48,7 @@ export interface UserRow {
   // migrations/015_pending_flow.sql and message-handler's advanceFlow().
   pending_flow: string | null;
   pending_flow_data: Record<string, unknown>;
+  trusted_devices?: string[];
   blocked: boolean;
   created_at: string;
 }

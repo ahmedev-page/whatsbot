@@ -107,6 +107,15 @@ export function parseCookies(header: string | null): Record<string, string> {
 }
 
 export async function isAdminRequest(request: Request, secret: string): Promise<boolean> {
+  const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
+  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (await verifySessionToken(secret, token)) return true;
+  }
+  const adminHeader = request.headers.get("x-admin-token");
+  if (adminHeader && await verifySessionToken(secret, adminHeader.trim())) {
+    return true;
+  }
   return verifySessionToken(secret, parseCookies(request.headers.get("cookie"))[SESSION_COOKIE]);
 }
 
@@ -125,7 +134,7 @@ export async function sessionCookie(secret: string, sameSite: "lax" | "none"): P
 // A separate cookie and a domain-separated signature ("user:<id>.<expiry>"),
 // so an admin token can never be replayed as a user session or vice versa.
 const USER_SESSION_COOKIE = "orxai_user";
-const USER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const USER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 async function signUserSession(secret: string, userId: string, expiresAt: string): Promise<string> {
   return bytesToHex(await hmac(secret, `user:${userId}.${expiresAt}`));
@@ -145,6 +154,17 @@ export async function verifyUserSessionToken(secret: string, token: string | und
 }
 
 export async function getUserIdFromRequest(request: Request, secret: string): Promise<string | null> {
+  const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
+  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+    const bearerToken = authHeader.slice(7).trim();
+    const userId = await verifyUserSessionToken(secret, bearerToken);
+    if (userId) return userId;
+  }
+  const sessionHeader = request.headers.get("x-session-token");
+  if (sessionHeader) {
+    const userId = await verifyUserSessionToken(secret, sessionHeader.trim());
+    if (userId) return userId;
+  }
   return verifyUserSessionToken(secret, parseCookies(request.headers.get("cookie"))[USER_SESSION_COOKIE]);
 }
 

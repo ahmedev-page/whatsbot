@@ -18,7 +18,7 @@ import {
   getLocalAccount,
   getLocalSiteDocument,
   isPhoneVerifiedOnDevice,
-  loginWithTrustedDevice,
+  loginWithTrustedDeviceServer,
   normalizePhoneNumber,
   pollLogin,
   siteQueryKey,
@@ -165,8 +165,8 @@ export default function Login() {
   };
 
   const handleTrustedDeviceLogin = useCallback(
-    (targetPhone?: string) => {
-      const trusted = loginWithTrustedDevice(targetPhone || phone);
+    async (targetPhone?: string) => {
+      const trusted = await loginWithTrustedDeviceServer(targetPhone || phone);
       if (!trusted) return false;
       setMessage('');
       setPhase('success');
@@ -194,7 +194,7 @@ export default function Login() {
 
       // If this phone was already verified on this device once, authenticate immediately via device recognition
       if (!forceNewCode && isPhoneVerifiedOnDevice(normalized)) {
-        if (handleTrustedDeviceLogin(normalized)) {
+        if (await handleTrustedDeviceLogin(normalized)) {
           return;
         }
       }

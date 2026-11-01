@@ -26,13 +26,15 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { Card } from '@/components/account-ui';
 import {
   ApiError,
   compressImage,
   siteUrl,
+  slugifyUsername,
   uploadImage,
+  useDeleteSite,
   useSaveSite,
   useSiteDocument,
   type SiteDocument,
@@ -41,7 +43,9 @@ import {
 
 type Json = Record<string, unknown>;
 interface Draft {
+  username: string;
   siteName: string;
+  templateId: string;
   themeColor: string;
   structure: Json;
 }
@@ -76,7 +80,8 @@ const COLLECTIONS: Record<string, CollectionDef> = {
     singular: 'منتج',
     fields: [
       NAME,
-      { keys: ['price'], label: 'السعر', placeholder: '25 ريال', half: true },
+      { keys: ['price'], label: 'السعر', placeholder: '25 ر.س', half: true },
+      { keys: ['category'], label: 'التصنيف', placeholder: 'مثال: مشروبات ساخنة', half: true },
       DESC,
       IMAGE,
     ],
@@ -87,28 +92,45 @@ const COLLECTIONS: Record<string, CollectionDef> = {
     singular: 'طبق',
     fields: [
       NAME,
-      { keys: ['price'], label: 'السعر', placeholder: '25 ريال', half: true },
+      { keys: ['price'], label: 'السعر', placeholder: '25 ر.س', half: true },
+      { keys: ['category'], label: 'القسم / التصنيف', placeholder: 'مثال: الأطباق الرئيسية', half: true },
       DESC,
       IMAGE,
     ],
   },
   services: {
     key: 'services',
-    title: 'الخدمات',
+    title: 'الخدمات والباقات',
     singular: 'خدمة',
-    fields: [NAME, DESC, IMAGE],
+    fields: [
+      NAME,
+      { keys: ['price'], label: 'السعر أو الباقة', placeholder: '250 ر.س', half: true },
+      { keys: ['category'], label: 'التصنيف', placeholder: 'مثال: باقات الأعمال', half: true },
+      DESC,
+      IMAGE,
+    ],
   },
   booking: {
     key: 'services',
     title: 'الخدمات القابلة للحجز',
     singular: 'خدمة',
-    fields: [NAME, DESC],
+    fields: [
+      NAME,
+      { keys: ['price'], label: 'السعر / الرسوم', placeholder: '150 ر.س', half: true },
+      { keys: ['duration'], label: 'المدة', placeholder: '45 دقيقة', half: true },
+      DESC,
+    ],
   },
   portfolio: {
     key: 'projects',
-    title: 'المشاريع',
+    title: 'المشاريع والأعمال',
     singular: 'مشروع',
-    fields: [{ ...NAME, keys: ['title', 'name'] }, DESC, IMAGE],
+    fields: [
+      { ...NAME, keys: ['title', 'name'] },
+      { keys: ['category'], label: 'مجال المشروع', placeholder: 'مثال: تصميم هوية بصرية', half: true },
+      DESC,
+      IMAGE,
+    ],
   },
 };
 
@@ -149,7 +171,9 @@ const asList = (value: unknown): Json[] =>
     ? (value as unknown[]).filter((entry): entry is Json => !!entry && typeof entry === 'object')
     : [];
 const toDraft = (doc: SiteDocument): Draft => ({
+  username: doc.username,
   siteName: doc.siteName,
+  templateId: doc.templateId,
   themeColor: doc.themeColor,
   structure: JSON.parse(JSON.stringify(doc.jsonStructure)) as Json,
 });
@@ -698,7 +722,9 @@ function Repeater({
 // The editor
 // ---------------------------------------------------------------------------
 function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: () => void }) {
+  const [, navigate] = useLocation();
   const save = useSaveSite();
+  const deleteSite = useDeleteSite();
   const [baseline, setBaseline] = useState<Draft>(() => toDraft(initial));
   const [draft, setDraft] = useState<Draft>(baseline);
   const [version, setVersion] = useState(initial.updatedAt);
@@ -706,6 +732,7 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
   const [savedFlash, setSavedFlash] = useState(false);
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
+  const [confirmDeleteSite, setConfirmDeleteSite] = useState(false);
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(baseline), [draft, baseline]);
   useEffect(() => {
@@ -729,7 +756,7 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
   const setNested = (group: string, key: string, value: string) =>
     setKey(group, { ...((structure[group] as Json | undefined) ?? {}), [key]: value });
 
-  const collection = COLLECTIONS[initial.templateId] ?? COLLECTIONS.store;
+  const collection = COLLECTIONS[draft.templateId] ?? COLLECTIONS.store;
   const style = (
     ['classic', 'modern', 'cinematic', 'app'].includes(text('templateStyle'))
       ? text('templateStyle')
@@ -741,8 +768,8 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
     !showsPhotos && collection.fields.includes(IMAGE)
       ? list.filter((item) => typeof item.image === 'string' && item.image).length
       : 0;
-  const isPortfolio = initial.templateId === 'portfolio';
-  const isBooking = initial.templateId === 'booking';
+  const isPortfolio = draft.templateId === 'portfolio';
+  const isBooking = draft.templateId === 'booking';
   const imageNote = showsPhotos
     ? undefined
     : 'هذه الصورة لن تظهر بالنمط الحالي — اختر "سينمائي" أو "تطبيق جوال" لعرضها.';
@@ -758,7 +785,9 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
     save.mutate(
       {
         baseUpdatedAt: version,
+        username: slugifyUsername(draft.username.trim() || draft.siteName.trim()),
         siteName: draft.siteName,
+        templateId: draft.templateId,
         themeColor: draft.themeColor,
         jsonStructure: draft.structure,
       },
@@ -773,17 +802,23 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
           window.setTimeout(() => setSavedFlash(false), 2200);
         },
         onError: (failure) => {
-          if (failure instanceof ApiError && failure.status === 409) setConflict(true);
-          else
+          if (failure instanceof ApiError && failure.status === 409) {
+            if (failure.message.includes('الرابط')) {
+              setError(failure.message);
+            } else {
+              setConflict(true);
+            }
+          } else {
             setError(
               failure instanceof Error ? failure.message : 'تعذّر الحفظ. حاول مرة أخرى.'
             );
+          }
         },
       }
     );
   };
 
-  const url = siteUrl(initial.username);
+  const url = siteUrl(baseline.username);
   const stateLabel = save.isPending
     ? 'جارٍ الحفظ…'
     : savedFlash
@@ -902,32 +937,70 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
         <fieldset disabled={save.isPending} className="min-w-0 flex-1 space-y-4">
           <Section
             icon={Type}
-            title="الأساسيات"
-            subtitle="الاسم والعبارة التعريفية والوصف"
+            title="الأساسيات والهوية"
+            subtitle="الاسم والرابط المخصص ونوع النشاط والعناوين والوصف"
             defaultOpen
           >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="اسم الموقع *"
+                value={draft.siteName}
+                onChange={(value) => setDraft((current) => ({ ...current, siteName: value }))}
+                max={80}
+                placeholder="مثال: متجر النور"
+              />
+              <TextField
+                label="الرابط المخصص للموقع (Username)"
+                value={draft.username}
+                onChange={(value) => setDraft((current) => ({ ...current, username: value }))}
+                max={32}
+                ltr
+                placeholder="al-noor-store"
+                hint={siteUrl(slugifyUsername(draft.username.trim() || draft.siteName.trim()))}
+              />
+            </div>
+
+            <Field label="نوع النشاط / القالب الرئيسي">
+              <select
+                value={draft.templateId}
+                onChange={(e) =>
+                  setDraft((current) => ({ ...current, templateId: e.target.value }))
+                }
+                className={inputClass}
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+              >
+                <option value="store">متجر إلكتروني وسلة طلبات (Store)</option>
+                <option value="restaurant">مطعم أو مقهى ومنيو رقمي (Restaurant)</option>
+                <option value="services">شركة أو باقات خدمات (Services)</option>
+                <option value="portfolio">معرض أعمال أو صفحة شخصية (Portfolio)</option>
+                <option value="booking">حجز مواعيد واستشارات (Booking)</option>
+              </select>
+            </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="العبارة التعريفية العلوية (Tagline)"
+                value={text('tagline')}
+                onChange={(value) => setKey('tagline', value)}
+                placeholder="جملة قصيرة تظهر أعلى الموقع"
+              />
+              <TextField
+                label="العنوان الرئيسي البارز (Headline)"
+                value={text('headline')}
+                onChange={(value) => setKey('headline', value)}
+                placeholder={draft.siteName || 'عنوان واجهة الموقع'}
+              />
+            </div>
+
             <TextField
-              label="اسم الموقع"
-              value={draft.siteName}
-              onChange={(value) => setDraft((current) => ({ ...current, siteName: value }))}
-              max={80}
-              placeholder="مثال: متجر النور"
-            />
-            <TextField
-              label="العبارة التعريفية"
-              value={text('tagline')}
-              onChange={(value) => setKey('tagline', value)}
-              placeholder="جملة قصيرة تظهر أعلى الموقع"
-            />
-            <TextField
-              label="الوصف"
+              label="الوصف التفصيلي"
               value={text('description')}
               onChange={(value) => setKey('description', value)}
               multiline
-              placeholder="عرّف الزائر بنشاطك"
+              placeholder="عرّف الزائر بنشاطك وما يميز خدماتك"
             />
             <TextField
-              label="نص زر التواصل"
+              label="نص زر الإجراء والتواصل (CTA)"
               value={text('ctaLabel')}
               onChange={(value) => setKey('ctaLabel', value)}
               placeholder="تواصل معنا"
@@ -1281,9 +1354,38 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
             />
           </Section>
 
+          {isBooking && (
+            <Section
+              icon={Clock3}
+              title="خطوات الحجز"
+              subtitle="اشرح للعميل كيف يتم تأكيد موعده"
+              badge={
+                <span
+                  className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
+                  style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                >
+                  {asList(structure.steps).length}
+                </span>
+              }
+            >
+              <Repeater
+                items={asList(structure.steps)}
+                onChange={(next) => setKey('steps', next)}
+                singular="خطوة"
+                titleKeys={['title']}
+                blank={() => ({ title: '', description: '' })}
+                max={12}
+                fields={[
+                  { keys: ['title'], label: 'عنوان الخطوة', placeholder: 'مثال: اختر الخدمة والوقت المناسب' },
+                  { keys: ['description'], label: 'تفاصيل الخطوة', kind: 'textarea' },
+                ]}
+              />
+            </Section>
+          )}
+
           {isPortfolio && (
             <>
-              <Section icon={Award} title="المهارات" subtitle="تظهر كوسوم في صفحة البورتفوليو">
+              <Section icon={Award} title="المهارات والإنجازات" subtitle="تظهر كوسوم وإحصائيات في صفحة البورتفوليو">
                 <TagsField
                   label="مهاراتك"
                   values={
@@ -1296,6 +1398,20 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
                   onChange={(values) => setKey('skills', values)}
                   placeholder="مثال: تصميم الهوية"
                 />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <TextField
+                    label="عدد المشاريع المنجزة"
+                    value={text('projectsCount')}
+                    onChange={(value) => setKey('projectsCount', value)}
+                    placeholder="مثال: +45 مشروع ناجح"
+                  />
+                  <TextField
+                    label="اقتباس أو فلسفة العمل"
+                    value={text('quote')}
+                    onChange={(value) => setKey('quote', value)}
+                    placeholder="مثال: التصميم الجيد يجمع بين الجمال والوظيفة"
+                  />
+                </div>
               </Section>
               <Section
                 icon={Briefcase}
@@ -1353,6 +1469,59 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
               </Section>
             </>
           )}
+
+          {/* Danger Zone: Delete Website from Database */}
+          <Card
+            className="flex flex-wrap items-center justify-between gap-4 border border-[#FECDD3] bg-[#FFF1F2] p-5"
+            style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#0F172A' }}
+          >
+            <div>
+              <p className="text-sm font-black text-[#BE123C]" style={{ color: '#BE123C' }}>
+                حذف الموقع نهائياً
+              </p>
+              <p className="mt-0.5 text-xs font-medium text-[#881337]" style={{ color: '#881337' }}>
+                سيتم حذف هذا الموقع من قاعدة البيانات وإلغاء نشر رابطه العام.
+              </p>
+            </div>
+            {confirmDeleteSite ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={deleteSite.isPending}
+                  onClick={() => {
+                    deleteSite.mutate(undefined, {
+                      onSuccess: () => navigate('/dashboard/services'),
+                    });
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#BE123C] px-4 py-2 text-xs font-bold text-white hover:bg-[#9F1239]"
+                  style={{ backgroundColor: '#BE123C', color: '#FFFFFF' }}
+                  data-testid="button-confirm-delete-site"
+                >
+                  <Trash2 size={14} />
+                  <span>{deleteSite.isPending ? 'جارٍ الحذف...' : 'نعم، احذف الموقع نهائياً'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteSite(false)}
+                  className="rounded-xl border border-[#CBD5E1] bg-white px-3 py-2 text-xs font-bold text-[#334155]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#334155' }}
+                >
+                  إلغاء
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteSite(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#FECDD3] bg-white px-4 py-2 text-xs font-bold text-[#BE123C] hover:bg-[#FFE4E6]"
+                style={{ backgroundColor: '#FFFFFF', borderColor: '#FECDD3', color: '#BE123C' }}
+                data-testid="button-delete-site"
+              >
+                <Trash2 size={14} />
+                <span>حذف الموقع</span>
+              </button>
+            )}
+          </Card>
         </fieldset>
 
         <aside className="hidden w-[340px] shrink-0 xl:block" aria-label="معاينة">

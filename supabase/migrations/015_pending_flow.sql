@@ -8,6 +8,6 @@
 -- pending_flow_data: small jsonb draft being built across the steps
 --   (collection key, name, price, image url, and — for edits — the index of
 --   the item being edited). Cleared back to '{}' once the flow ends.
-alter table users
+alter table public.users
   add column if not exists pending_flow text,
   add column if not exists pending_flow_data jsonb not null default '{}'::jsonb;
