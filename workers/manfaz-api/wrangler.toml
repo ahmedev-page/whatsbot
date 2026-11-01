@@ -1,0 +1,21 @@
+name = "orxai"
+main = "src/index.ts"
+compatibility_date = "2026-09-02"
+workers_dev = true
+
+[vars]
+META_GRAPH_VERSION = "v20.0"
+GEMINI_MODEL = "gemini-3.6-flash"
+
+# Set FRONTEND_URL per environment with `wrangler secret put FRONTEND_URL`
+# or add it to the [vars] block before deployment.
+
+[[queues.producers]]
+binding = "WHATSAPP_QUEUE"
+queue = "manfaz-whatsapp-messages"
+
+[[queues.consumers]]
+queue = "manfaz-whatsapp-messages"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3

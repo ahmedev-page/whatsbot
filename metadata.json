@@ -1,0 +1,8 @@
+{
+  "name": "ORxai — إنشاء المواقع عبر الذكاء الاصطناعي",
+  "description": "ORxai يحوّل طلباتك على واتساب إلى موقع جميل وجاهز للمشاركة.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

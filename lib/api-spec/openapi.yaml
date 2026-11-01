@@ -1,0 +1,536 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: public
+    description: Public landing page and websites
+  - name: admin
+    description: Admin operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /public/settings/whatsapp:
+    get:
+      operationId: getPublicWhatsapp
+      tags: [public]
+      summary: Get the public WhatsApp number
+      responses:
+        "200":
+          description: WhatsApp contact configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicWhatsapp"
+  /public/websites/{publicId}:
+    get:
+      operationId: getPublicWebsite
+      tags: [public]
+      summary: Get a website by its public id
+      parameters:
+        - $ref: "#/components/parameters/PublicId"
+      responses:
+        "200":
+          description: Website
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Website"
+        "404":
+          description: Website not found
+  /admin/login:
+    post:
+      operationId: adminLogin
+      tags: [admin]
+      summary: Sign in to the admin console
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminLoginInput"
+      responses:
+        "200":
+          description: Login result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+        "401":
+          description: Invalid password
+  /admin/summary:
+    get:
+      operationId: getAdminSummary
+      tags: [admin]
+      summary: Get dashboard summary
+      security: [{ adminSession: [] }]
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSummary"
+  /admin/whatsapp/status:
+    get:
+      operationId: getAdminWhatsappStatus
+      tags: [admin]
+      summary: Check Meta WhatsApp Cloud API status
+      security: [{ adminSession: [] }]
+      responses:
+        "200":
+          description: WhatsApp Cloud API status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsappStatus"
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      tags: [admin]
+      summary: List users
+      security: [{ adminSession: [] }]
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+  /admin/users/{id}/quota:
+    patch:
+      operationId: updateUserQuota
+      tags: [admin]
+      summary: Adjust a user's quota
+      security: [{ adminSession: [] }]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotaUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /admin/users/{id}/blocked:
+    patch:
+      operationId: updateUserBlocked
+      tags: [admin]
+      summary: Block or unblock a user from getting bot replies
+      security: [{ adminSession: [] }]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlockedUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /admin/users/{id}/messages:
+    get:
+      operationId: getAdminUserMessages
+      tags: [admin]
+      summary: Paginated conversation history for one user, newest first
+      security: [{ adminSession: [] }]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - name: before
+          in: query
+          required: false
+          description: Message id cursor — loads the page older than this id ("عرض السابق").
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: A page of messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMessagesPage"
+  /admin/users/{id}/message:
+    post:
+      operationId: sendUserMessage
+      tags: [admin]
+      summary: Send a WhatsApp text message to this user directly from the admin dashboard
+      security: [{ adminSession: [] }]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageInput"
+      responses:
+        "200":
+          description: Delivery result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendMessageResult"
+  /admin/api-keys:
+    get:
+      operationId: listAdminApiKeys
+      tags: [admin]
+      summary: List Gemini API key metadata
+      security: [{ adminSession: [] }]
+      responses:
+        "200":
+          description: API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKey"
+    post:
+      operationId: createAdminApiKey
+      tags: [admin]
+      summary: Add a Gemini API key
+      security: [{ adminSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiKeyInput"
+      responses:
+        "201":
+          description: API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKey"
+  /admin/api-keys/{id}:
+    patch:
+      operationId: updateAdminApiKey
+      tags: [admin]
+      summary: Toggle an API key
+      security: [{ adminSession: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ApiKeyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiKeyUpdate"
+      responses:
+        "200":
+          description: API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKey"
+  /admin/websites:
+    get:
+      operationId: listAdminWebsites
+      tags: [admin]
+      summary: List websites
+      security: [{ adminSession: [] }]
+      responses:
+        "200":
+          description: Websites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminWebsite"
+  /admin/websites/{id}/branding:
+    patch:
+      operationId: updateAdminWebsiteBranding
+      tags: [admin]
+      summary: Toggle the orxai badge for a website
+      security: [{ adminSession: [] }]
+      parameters:
+        - $ref: "#/components/parameters/WebsiteId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandingUpdate"
+      responses:
+        "200":
+          description: Updated website
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminWebsite"
+  /admin/settings:
+    get:
+      operationId: listAdminSettings
+      tags: [admin]
+      summary: List platform settings
+      security: [{ adminSession: [] }]
+      responses:
+        "200":
+          description: Platform settings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformSetting"
+    put:
+      operationId: updateAdminSettings
+      tags: [admin]
+      summary: Update platform settings
+      security: [{ adminSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdate"
+      responses:
+        "200":
+          description: Platform settings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlatformSetting"
+components:
+  securitySchemes:
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: manfaz_admin
+  parameters:
+    PublicId:
+      name: publicId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ApiKeyId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WebsiteId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    PublicWhatsapp:
+      type: object
+      properties:
+        whatsappNumber:
+          type: string
+        frontendUrl:
+          type: string
+      required: [whatsappNumber, frontendUrl]
+    Website:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        publicId:
+          type: string
+          format: uuid
+        siteName:
+          type: string
+        templateId:
+          type: string
+        themeColor:
+          type: string
+        jsonStructure:
+          type: object
+          additionalProperties: true
+        showBranding:
+          type: boolean
+          description: Whether the "Created by orxai" badge shows on this site's public page.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, publicId, siteName, templateId, themeColor, jsonStructure, showBranding, createdAt, updatedAt]
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        phoneNumber: { type: string }
+        freeMessagesUsed: { type: integer }
+        freeMessagesLimit: { type: integer }
+        websiteCount: { type: integer }
+        blocked: { type: boolean }
+        unreadMessages: { type: integer }
+        createdAt: { type: string, format: date-time }
+      required: [id, phoneNumber, freeMessagesUsed, freeMessagesLimit, websiteCount, blocked, unreadMessages, createdAt]
+    ApiKey:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string }
+        maskedKey: { type: string }
+        status: { type: string, enum: [active, disabled] }
+        lastUsedAt: { type: ["string", "null"], format: date-time }
+      required: [id, provider, maskedKey, status, lastUsedAt]
+    PlatformSetting:
+      type: object
+      properties:
+        key: { type: string }
+        value: { type: string }
+      required: [key, value]
+    AdminLoginInput:
+      type: object
+      properties:
+        password: { type: string, minLength: 1 }
+      required: [password]
+    AdminSession:
+      type: object
+      properties:
+        authenticated: { type: boolean }
+      required: [authenticated]
+    AdminSummary:
+      type: object
+      properties:
+        totalUsers: { type: integer }
+        totalWebsites: { type: integer }
+        messagesUsed: { type: integer }
+        activeApiKeys: { type: integer }
+        whatsappConfigured: { type: boolean }
+      required: [totalUsers, totalWebsites, messagesUsed, activeApiKeys, whatsappConfigured]
+    WhatsappStatus:
+      type: object
+      properties:
+        connected: { type: boolean }
+        phoneNumberId: { type: ["string", "null"] }
+        displayName: { type: ["string", "null"] }
+        message: { type: string }
+      required: [connected, phoneNumberId, displayName, message]
+    AdminWebsite:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        publicId: { type: string, format: uuid }
+        siteName: { type: string }
+        templateId: { type: string }
+        themeColor: { type: string }
+        showBranding: { type: boolean }
+        ownerPhone: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, publicId, siteName, templateId, themeColor, showBranding, ownerPhone, createdAt, updatedAt]
+    BrandingUpdate:
+      type: object
+      properties:
+        showBranding: { type: boolean }
+      required: [showBranding]
+    QuotaUpdate:
+      type: object
+      properties:
+        delta: { type: integer, minimum: -1000, maximum: 1000 }
+      required: [delta]
+    BlockedUpdate:
+      type: object
+      properties:
+        blocked: { type: boolean }
+      required: [blocked]
+    ConversationMessage:
+      type: object
+      properties:
+        id: { type: integer }
+        direction: { type: string, enum: [inbound, outbound] }
+        content: { type: string }
+        isRead: { type: boolean }
+        createdAt: { type: string, format: date-time }
+      required: [id, direction, content, isRead, createdAt]
+    ConversationMessagesPage:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationMessage"
+        hasMore: { type: boolean }
+      required: [messages, hasMore]
+    SendMessageInput:
+      type: object
+      properties:
+        message: { type: string, minLength: 1, maxLength: 4096 }
+      required: [message]
+    SendMessageResult:
+      type: object
+      properties:
+        sent: { type: boolean }
+      required: [sent]
+    ApiKeyInput:
+      type: object
+      properties:
+        key: { type: string, minLength: 10 }
+      required: [key]
+    ApiKeyUpdate:
+      type: object
+      properties:
+        status: { type: string, enum: [active, disabled] }
+      required: [status]
+    SettingsUpdate:
+      type: object
+      properties:
+        settings:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformSetting"
+      required: [settings]
+

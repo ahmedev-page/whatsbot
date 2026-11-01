@@ -1,0 +1,30 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "dev": "npm run dev --workspace=@workspace/manfaz",
+    "build": "npm run build --workspace=@workspace/manfaz",
+    "typecheck": "tsc --build",
+    "lint": "tsc --build"
+  },
+  "private": true,
+  "dependencies": {
+    "@replit/connectors-sdk": "^0.4.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.3"
+  },
+  "workspaces": [
+    "artifacts/*",
+    "workers/*",
+    "lib/*",
+    "lib/integrations/*",
+    "scripts"
+  ],
+  "overrides": {
+    "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0",
+    "esbuild": "0.27.3"
+  }
+}

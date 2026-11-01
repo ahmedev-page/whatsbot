@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "ORxai — منصة إنشاء المواقع"
+description = "منصة عربية RTL لإنشاء مواقع أعمال صغيرة وتحديثها عبر WhatsApp، مع لوحة إدارة وقوالب عامة قابلة للمشاركة."
+version = "1.0.0"
+id = "artifacts/manfaz"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20430
+
+[services.development]
+run = "pnpm --filter @workspace/manfaz run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/manfaz", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/manfaz/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20430"
+BASE_PATH = "/"
