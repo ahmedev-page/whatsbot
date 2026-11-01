@@ -14,7 +14,14 @@ import { Brand } from '@/components/brand';
 import {
   accountQueryKey,
   confirmBotVerification,
+  getLastVerifiedPhone,
+  getLocalAccount,
+  getLocalSiteDocument,
+  isPhoneVerifiedOnDevice,
+  loginWithTrustedDevice,
+  normalizePhoneNumber,
   pollLogin,
+  siteQueryKey,
   startLogin,
   useAccount,
   whatsappLoginUrl,
@@ -127,12 +134,23 @@ export default function Login() {
   const [sentToBot, setSentToBot] = useState(false);
   const polling = useRef(false);
 
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(() => getLastVerifiedPhone() || '');
   const [phoneError, setPhoneError] = useState('');
+  const lastVerifiedPhone = getLastVerifiedPhone();
+  const isCurrentPhoneTrusted = phone.trim().length >= 9 && isPhoneVerifiedOnDevice(phone);
+
+  const activeAccount = account.data || getLocalAccount();
 
   useEffect(() => {
-    if (account.data) navigate('/dashboard', { replace: true });
-  }, [account.data, navigate]);
+    if (activeAccount) {
+      queryClient.setQueryData(accountQueryKey, activeAccount);
+      const localSite = getLocalSiteDocument();
+      if (localSite) {
+        queryClient.setQueryData(siteQueryKey, localSite);
+      }
+      navigate('/dashboard', { replace: true });
+    }
+  }, [activeAccount, navigate, queryClient]);
 
   const validatePhone = (raw: string): string | null => {
     const cleaned = raw.replace(/[^\d]/g, '');
@@ -143,17 +161,28 @@ export default function Login() {
   };
 
   const getNormalizedPhone = (raw: string): string => {
-    let cleaned = raw.replace(/[^\d]/g, '');
-    if (cleaned.startsWith('05')) {
-      cleaned = '966' + cleaned.slice(1);
-    } else if (cleaned.startsWith('5') && cleaned.length === 9) {
-      cleaned = '966' + cleaned;
-    }
-    return cleaned;
+    return normalizePhoneNumber(raw);
   };
 
+  const handleTrustedDeviceLogin = useCallback(
+    (targetPhone?: string) => {
+      const trusted = loginWithTrustedDevice(targetPhone || phone);
+      if (!trusted) return false;
+      setMessage('');
+      setPhase('success');
+      queryClient.setQueryData(accountQueryKey, trusted);
+      const localSite = getLocalSiteDocument();
+      if (localSite) {
+        queryClient.setQueryData(siteQueryKey, localSite);
+      }
+      window.setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+      return true;
+    },
+    [navigate, phone, queryClient]
+  );
+
   const begin = useCallback(
-    async (e?: React.FormEvent) => {
+    async (e?: React.FormEvent, forceNewCode = false) => {
       if (e) e.preventDefault();
       const err = validatePhone(phone);
       if (err) {
@@ -161,11 +190,19 @@ export default function Login() {
         return;
       }
       setPhoneError('');
+      const normalized = getNormalizedPhone(phone);
+
+      // If this phone was already verified on this device once, authenticate immediately via device recognition
+      if (!forceNewCode && isPhoneVerifiedOnDevice(normalized)) {
+        if (handleTrustedDeviceLogin(normalized)) {
+          return;
+        }
+      }
+
       setPhase('starting');
       setMessage('');
       setSentToBot(false);
       try {
-        const normalized = getNormalizedPhone(phone);
         const next = await startLogin(normalized);
         const seconds = Math.max(
           1,
@@ -180,7 +217,7 @@ export default function Login() {
         setPhase('error');
       }
     },
-    [phone]
+    [phone, handleTrustedDeviceLogin]
   );
 
   const check = useCallback(
@@ -192,8 +229,16 @@ export default function Login() {
         if (status === 'authenticated') {
           setMessage('');
           setPhase('success');
-          await queryClient.invalidateQueries({ queryKey: accountQueryKey });
-          window.setTimeout(() => navigate('/dashboard', { replace: true }), 1000);
+          const verifiedAccount = getLocalAccount();
+          if (verifiedAccount) {
+            queryClient.setQueryData(accountQueryKey, verifiedAccount);
+          }
+          const localSite = getLocalSiteDocument();
+          if (localSite) {
+            queryClient.setQueryData(siteQueryKey, localSite);
+          }
+          void queryClient.invalidateQueries({ queryKey: accountQueryKey });
+          window.setTimeout(() => navigate('/dashboard', { replace: true }), 700);
         } else if (status === 'expired') {
           setPhase('expired');
         } else if (forceExplicit) {
@@ -509,6 +554,11 @@ export default function Login() {
                       <RefreshCw size={17} className="animate-spin" />
                       <span>جاري إصدار كود التحقق…</span>
                     </>
+                  ) : isCurrentPhoneTrusted ? (
+                    <>
+                      <ShieldCheck size={18} />
+                      <span>الدخول المباشر (تم التعرف على جهازك الموثق)</span>
+                    </>
                   ) : (
                     <>
                       <MessageCircle size={18} />
@@ -516,6 +566,29 @@ export default function Login() {
                     </>
                   )}
                 </button>
+
+                {lastVerifiedPhone && (
+                  <div
+                    className="rounded-xl border border-[#A7F3D0] bg-[#ECFDF5] p-3.5 text-right"
+                    style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#065F46' }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs font-extrabold text-[#065F46]" style={{ color: '#065F46' }}>
+                        <ShieldCheck size={16} style={{ color: '#059669' }} />
+                        <span>هذا الجهاز موثق مسبقاً للرقم (+{lastVerifiedPhone})</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleTrustedDeviceLogin(lastVerifiedPhone)}
+                        className="rounded-lg bg-[#059669] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#047857]"
+                        style={{ backgroundColor: '#059669', color: '#FFFFFF' }}
+                        data-testid="button-trusted-device-login"
+                      >
+                        دخول فوري بدون كود
+                      </button>
+                    </div>
+                  </div>
+                )}
               </form>
 
               <div
@@ -527,10 +600,9 @@ export default function Login() {
                 }}
               >
                 <strong className="font-extrabold text-[#0F172A]" style={{ color: '#0F172A' }}>
-                  تحقق إلزامي وأمان تام:
+                  التحقق لمرة واحدة فقط لكل جهاز:
                 </strong>{' '}
-                لن يتم إنشاء الجلسة أو فتح لوحة التحكم إلا بعد إرسال الكود للبوت واعتماد هويتك
-                بنجاح.
+                يتم التحقق عبر بوت واتساب في أول مرة فقط، وبعدها يتعرف النظام على جهازك تلقائياً دون الحاجة لتكرار التحقق.
               </div>
             </div>
           )}

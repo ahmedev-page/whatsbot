@@ -54,6 +54,101 @@ function apiBase(): string {
 
 const LOCAL_ACCOUNT_KEY = 'orxai_workspace_account';
 const LOCAL_SITES_KEY = 'orxai_workspace_sites';
+const LOCAL_LATEST_SITE_KEY = 'orxai_latest_site';
+const SESSION_TOKEN_KEY = 'orxai_session_token';
+const DEVICE_ID_KEY = 'orxai_device_id';
+const TRUSTED_DEVICES_KEY = 'orxai_trusted_device_accounts';
+const LAST_VERIFIED_PHONE_KEY = 'orxai_last_verified_phone';
+const EXPLICIT_LOGOUT_KEY = 'orxai_explicit_logout';
+const PENDING_PHONE_KEY = 'orxai_pending_phone';
+const PENDING_CHALLENGE_KEY = 'orxai_pending_challenge';
+const VERIFIED_CHALLENGES_KEY = 'orxai_verified_challenges';
+
+export function normalizePhoneNumber(raw: string): string {
+  let cleaned = raw.replace(/[^\d]/g, '');
+  if (cleaned.startsWith('00')) {
+    cleaned = cleaned.slice(2);
+  }
+  if (cleaned.startsWith('05') && cleaned.length === 10) {
+    cleaned = '966' + cleaned.slice(1);
+  } else if (cleaned.startsWith('5') && cleaned.length === 9) {
+    cleaned = '966' + cleaned;
+  }
+  return cleaned;
+}
+
+export function getOrCreateDeviceId(): string {
+  if (typeof window === 'undefined') return 'srv_device';
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  return id;
+}
+
+export function getSessionToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(SESSION_TOKEN_KEY);
+}
+
+export function saveSessionToken(token: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!token) {
+    localStorage.removeItem(SESSION_TOKEN_KEY);
+    return;
+  }
+  localStorage.setItem(SESSION_TOKEN_KEY, token);
+}
+
+function getTrustedAccountsMap(): Record<string, Account> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(TRUSTED_DEVICES_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, Account>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveTrustedDeviceAccount(account: Account): void {
+  if (typeof window === 'undefined' || !account?.phoneNumber) return;
+  const cleanPhone = normalizePhoneNumber(account.phoneNumber);
+  const normalizedAccount: Account = { ...account, phoneNumber: cleanPhone };
+  const map = getTrustedAccountsMap();
+  map[cleanPhone] = normalizedAccount;
+  localStorage.setItem(TRUSTED_DEVICES_KEY, JSON.stringify(map));
+  localStorage.setItem(LAST_VERIFIED_PHONE_KEY, cleanPhone);
+  localStorage.removeItem(EXPLICIT_LOGOUT_KEY);
+}
+
+export function getLastVerifiedPhone(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(LAST_VERIFIED_PHONE_KEY);
+}
+
+export function isPhoneVerifiedOnDevice(phoneInput: string): boolean {
+  if (typeof window === 'undefined') return false;
+  const cleanPhone = normalizePhoneNumber(phoneInput);
+  if (!cleanPhone) return false;
+  const map = getTrustedAccountsMap();
+  return Boolean(map[cleanPhone]);
+}
+
+export function loginWithTrustedDevice(phoneInput?: string): Account | null {
+  if (typeof window === 'undefined') return null;
+  const targetPhone = phoneInput ? normalizePhoneNumber(phoneInput) : getLastVerifiedPhone();
+  if (!targetPhone) return null;
+  const map = getTrustedAccountsMap();
+  const trusted = map[targetPhone];
+  if (!trusted) return null;
+  localStorage.removeItem(EXPLICIT_LOGOUT_KEY);
+  saveLocalAccount(trusted);
+  if (!getSessionToken()) {
+    saveSessionToken(`dev_tok_${getOrCreateDeviceId()}`);
+  }
+  return trusted;
+}
 
 export function getLocalAccount(): Account | null {
   if (typeof window === 'undefined') {
@@ -72,6 +167,19 @@ export function getLocalAccount(): Account | null {
     }
   }
 
+  // If the user has verified on this device before and did not explicitly log out,
+  // automatically recognize the device and restore their session.
+  if (localStorage.getItem(EXPLICIT_LOGOUT_KEY) !== '1') {
+    const lastPhone = getLastVerifiedPhone();
+    if (lastPhone) {
+      const map = getTrustedAccountsMap();
+      if (map[lastPhone]) {
+        localStorage.setItem(LOCAL_ACCOUNT_KEY, JSON.stringify(map[lastPhone]));
+        return map[lastPhone];
+      }
+    }
+  }
+
   return null;
 }
 
@@ -81,14 +189,27 @@ export function saveLocalAccount(account: Account | null): void {
     localStorage.removeItem(LOCAL_ACCOUNT_KEY);
     return;
   }
-  localStorage.setItem(LOCAL_ACCOUNT_KEY, JSON.stringify(account));
+  const normalized: Account = {
+    ...account,
+    phoneNumber: normalizePhoneNumber(account.phoneNumber) || account.phoneNumber,
+  };
+  localStorage.setItem(LOCAL_ACCOUNT_KEY, JSON.stringify(normalized));
+  localStorage.removeItem(EXPLICIT_LOGOUT_KEY);
+  saveTrustedDeviceAccount(normalized);
 }
 
 export function registerOrLoginWithPhone(phoneInput: string): Account {
-  const cleanPhone = phoneInput.replace(/[^\d]/g, '') || '966500000000';
+  const cleanPhone = normalizePhoneNumber(phoneInput) || '966500000000';
   const existing = getLocalAccount();
-  if (existing && existing.phoneNumber === cleanPhone) {
+  if (existing && normalizePhoneNumber(existing.phoneNumber) === cleanPhone) {
+    saveLocalAccount(existing);
     return existing;
+  }
+
+  const trustedMap = getTrustedAccountsMap();
+  if (trustedMap[cleanPhone]) {
+    saveLocalAccount(trustedMap[cleanPhone]);
+    return trustedMap[cleanPhone];
   }
 
   const newAccount: Account = {
@@ -97,7 +218,7 @@ export function registerOrLoginWithPhone(phoneInput: string): Account {
     freeMessagesUsed: 0,
     freeMessagesLimit: 50,
     createdAt: new Date().toISOString(),
-    website: null, // Clean new account with no dummy sites
+    website: null,
   };
 
   saveLocalAccount(newAccount);
@@ -105,16 +226,35 @@ export function registerOrLoginWithPhone(phoneInput: string): Account {
 }
 
 export function getLocalSiteDocument(): SiteDocument | null {
+  if (typeof window === 'undefined') return null;
   const account = getLocalAccount();
-  if (!account || !account.website) return null;
 
-  const storedSites = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_SITES_KEY) : null;
+  const storedSites = localStorage.getItem(LOCAL_SITES_KEY);
   if (storedSites) {
     try {
       const sites = JSON.parse(storedSites) as Record<string, SiteDocument>;
-      if (sites[account.website.username]) {
+      if (account?.website?.username && sites[account.website.username]) {
         return sites[account.website.username];
       }
+      const latestRaw = localStorage.getItem(LOCAL_LATEST_SITE_KEY);
+      if (latestRaw) {
+        const latest = JSON.parse(latestRaw) as SiteDocument;
+        if (latest && latest.username) return latest;
+      }
+      const allSites = Object.values(sites);
+      if (allSites.length > 0) {
+        return allSites[allSites.length - 1];
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const latestRaw = localStorage.getItem(LOCAL_LATEST_SITE_KEY);
+  if (latestRaw) {
+    try {
+      const latest = JSON.parse(latestRaw) as SiteDocument;
+      if (latest && latest.username) return latest;
     } catch {
       // ignore
     }
@@ -136,25 +276,31 @@ export function saveLocalSiteDocument(doc: SiteDocument): void {
   }
   sites[doc.username] = doc;
   localStorage.setItem(LOCAL_SITES_KEY, JSON.stringify(sites));
+  localStorage.setItem(LOCAL_LATEST_SITE_KEY, JSON.stringify(doc));
 
-  // Sync back to account if a local account exists
-  const account = getLocalAccount();
-  if (account) {
-    account.website = {
-      id: doc.id,
-      username: doc.username,
-      siteName: doc.siteName,
-      templateId: doc.templateId,
-      themeColor: doc.themeColor,
-      templateStyle: (doc.jsonStructure?.templateStyle as string) || 'modern',
-      showBranding: doc.showBranding,
-      createdAt: doc.createdAt,
-      updatedAt: new Date().toISOString(),
-      visitsToday: account.website?.visitsToday || 12,
-      visitsTotal: account.website?.visitsTotal || 240,
-    };
-    saveLocalAccount(account);
+  // Always ensure a local account exists and sync the website summary back to it
+  let account = getLocalAccount();
+  if (!account) {
+    const fallbackPhone =
+      getLastVerifiedPhone() ||
+      (typeof doc.jsonStructure?.phone === 'string' && doc.jsonStructure.phone) ||
+      '966500000000';
+    account = registerOrLoginWithPhone(fallbackPhone);
   }
+  account.website = {
+    id: doc.id,
+    username: doc.username,
+    siteName: doc.siteName,
+    templateId: doc.templateId,
+    themeColor: doc.themeColor,
+    templateStyle: (doc.jsonStructure?.templateStyle as string) || 'modern',
+    showBranding: doc.showBranding,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt || new Date().toISOString(),
+    visitsToday: account.website?.visitsToday || 12,
+    visitsTotal: account.website?.visitsTotal || 240,
+  };
+  saveLocalAccount(account);
 }
 
 export function getLocalWebsiteByUsername(username: string): SiteDocument | null {
@@ -198,11 +344,13 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
         { name: 'الخيار المتقدم المتكامل', price: '450 ر.س', description: 'حل متكامل وشامل لتلبية جميع احتياجاتك.' },
       ];
 
+  const activePhone = input.phone || getLocalAccount()?.phoneNumber || getLastVerifiedPhone() || '';
+
   const jsonStructure: Record<string, unknown> = {
     tagline: input.description || 'مرحباً بكم في موقعنا الرسمي الجديد',
     description: input.description || 'يسعدنا خدمتكم بأعلى جودة واحترافية على مدار الساعة.',
     ctaLabel: input.templateId === 'booking' ? 'احجز الآن' : input.templateId === 'restaurant' ? 'شاهد المنيو واطلب' : 'تواصل واطلب الآن',
-    phone: input.phone || getLocalAccount()?.phoneNumber || '',
+    phone: activePhone,
     templateStyle,
     [collectionKey]: defaultItems,
     workingHours: [
@@ -210,7 +358,7 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
     ],
     address: 'المملكة العربية السعودية',
     socialLinks: {
-      whatsapp: input.phone || getLocalAccount()?.phoneNumber || '',
+      whatsapp: activePhone,
     },
   };
 
@@ -230,7 +378,7 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
   } catch {
     let account = getLocalAccount();
     if (!account) {
-      account = registerOrLoginWithPhone(input.phone || '966500000000');
+      account = registerOrLoginWithPhone(activePhone || '966500000000');
     }
     const doc: SiteDocument = {
       id: `site-${Date.now().toString(36)}`,
@@ -240,9 +388,9 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
       themeColor,
       jsonStructure: {
         ...jsonStructure,
-        phone: input.phone || account.phoneNumber,
+        phone: activePhone || account.phoneNumber,
         socialLinks: {
-          whatsapp: input.phone || account.phoneNumber,
+          whatsapp: activePhone || account.phoneNumber,
         },
       },
       showBranding: true,
@@ -258,12 +406,29 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
 }
 
 async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = (init.method || 'GET').toUpperCase();
+  const token = getSessionToken();
+  const deviceId = getOrCreateDeviceId();
+
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Device-Id': deviceId,
+      ...(token ? { Authorization: `Bearer ${token}`, 'X-Session-Token': token } : {}),
+      ...((init.headers as Record<string, string>) ?? {}),
+    };
+
     const response = await fetch(`${apiBase()}${path}`, {
       ...init,
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+      headers,
     });
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new ApiError(502, 'Backend API not active');
+    }
+
     if (response.status === 401) throw new AuthRequiredError();
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -271,14 +436,13 @@ async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T>
     }
     return (await response.json()) as T;
   } catch (err) {
-    if (err instanceof AuthRequiredError) throw err;
-    // When offline or backend unavailable:
-    if (path === '/api/me') {
+    // When offline, cross-origin cookies blocked, or backend endpoint unavailable:
+    if (path === '/api/me' && method === 'GET') {
       const local = getLocalAccount();
       if (!local) throw new AuthRequiredError();
       return local as unknown as T;
     }
-    if (path === '/api/me/website') {
+    if (path === '/api/me/website' && method === 'GET') {
       const doc = getLocalSiteDocument();
       if (!doc) throw new ApiError(404, 'No site found');
       return doc as unknown as T;
@@ -294,7 +458,33 @@ export function useAccount() {
     queryKey: accountQueryKey,
     queryFn: async () => {
       try {
-        return await accountFetch<Account>('/api/me');
+        const remote = await accountFetch<Account>('/api/me');
+        const local = getLocalAccount();
+        const localSite = getLocalSiteDocument();
+        // If user created a site locally (e.g. before Worker update) and remote has no website yet, preserve local website
+        const merged: Account = {
+          ...remote,
+          website:
+            remote.website ??
+            local?.website ??
+            (localSite
+              ? {
+                  id: localSite.id,
+                  username: localSite.username,
+                  siteName: localSite.siteName,
+                  templateId: localSite.templateId,
+                  themeColor: localSite.themeColor,
+                  templateStyle: (localSite.jsonStructure?.templateStyle as string) || 'modern',
+                  showBranding: localSite.showBranding,
+                  createdAt: localSite.createdAt,
+                  updatedAt: localSite.updatedAt,
+                  visitsToday: 12,
+                  visitsTotal: 240,
+                }
+              : null),
+        };
+        saveLocalAccount(merged);
+        return merged;
       } catch {
         return getLocalAccount();
       }
@@ -313,10 +503,18 @@ export function useLogout() {
       } catch {
         // ignore
       }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(EXPLICIT_LOGOUT_KEY, '1');
+      }
+      saveSessionToken(null);
       saveLocalAccount(null);
       return { ok: true };
     },
     onSettled: () => {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(EXPLICIT_LOGOUT_KEY, '1');
+      }
+      saveSessionToken(null);
       saveLocalAccount(null);
       queryClient.setQueryData(accountQueryKey, null);
       queryClient.setQueryData(siteQueryKey, null);
@@ -325,14 +523,10 @@ export function useLogout() {
   });
 }
 
-const PENDING_PHONE_KEY = 'orxai_pending_phone';
-const PENDING_CHALLENGE_KEY = 'orxai_pending_challenge';
-const VERIFIED_CHALLENGES_KEY = 'orxai_verified_challenges';
-
 export function getVerifiedChallenges(): string[] {
   if (typeof window === 'undefined') return [];
   try {
-    const data = sessionStorage.getItem(VERIFIED_CHALLENGES_KEY);
+    const data = localStorage.getItem(VERIFIED_CHALLENGES_KEY) || sessionStorage.getItem(VERIFIED_CHALLENGES_KEY);
     return data ? JSON.parse(data) : [];
   } catch {
     return [];
@@ -345,7 +539,9 @@ export function confirmBotVerification(challengeId: string): void {
     const verified = getVerifiedChallenges();
     if (!verified.includes(challengeId)) {
       verified.push(challengeId);
-      sessionStorage.setItem(VERIFIED_CHALLENGES_KEY, JSON.stringify(verified));
+      const serialized = JSON.stringify(verified);
+      sessionStorage.setItem(VERIFIED_CHALLENGES_KEY, serialized);
+      localStorage.setItem(VERIFIED_CHALLENGES_KEY, serialized);
     }
   } catch {
     // ignore
@@ -357,13 +553,14 @@ export function isChallengeVerified(challengeId: string): boolean {
 }
 
 export function startLogin(phoneNumber?: string): Promise<LoginChallenge> {
-  const cleanPhone = phoneNumber ? phoneNumber.replace(/[^\d]/g, '') : '';
+  const cleanPhone = phoneNumber ? normalizePhoneNumber(phoneNumber) : '';
   if (cleanPhone && typeof window !== 'undefined') {
     sessionStorage.setItem(PENDING_PHONE_KEY, cleanPhone);
+    localStorage.setItem(PENDING_PHONE_KEY, cleanPhone);
   }
   return accountFetch<LoginChallenge>('/api/auth/start', {
     method: 'POST',
-    body: phoneNumber ? JSON.stringify({ phone: phoneNumber }) : undefined,
+    body: cleanPhone ? JSON.stringify({ phone: cleanPhone }) : undefined,
   }).catch(() => {
     // Fallback local challenge only when backend API is unconfigured (preview mode)
     const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -382,12 +579,27 @@ export function startLogin(phoneNumber?: string): Promise<LoginChallenge> {
 }
 
 export async function pollLogin(id: string): Promise<LoginStatus> {
+  const resolvePendingPhone = (): string => {
+    if (typeof window === 'undefined') return '966500000000';
+    return (
+      sessionStorage.getItem(PENDING_PHONE_KEY) ||
+      localStorage.getItem(PENDING_PHONE_KEY) ||
+      getLastVerifiedPhone() ||
+      getLocalAccount()?.phoneNumber ||
+      '966500000000'
+    );
+  };
+
   // If challenge ID is a local preview challenge (starts with 'ch_'), verify via local bot confirmation
   if (id.startsWith('ch_')) {
     if (isChallengeVerified(id)) {
-      const pending = typeof window !== 'undefined' ? sessionStorage.getItem(PENDING_PHONE_KEY) : null;
-      if (pending) {
-        registerOrLoginWithPhone(pending);
+      const pendingPhone = resolvePendingPhone();
+      const account = registerOrLoginWithPhone(pendingPhone);
+      saveTrustedDeviceAccount(account);
+      if (!getSessionToken()) {
+        saveSessionToken(`dev_tok_${getOrCreateDeviceId()}`);
+      }
+      if (typeof window !== 'undefined') {
         sessionStorage.removeItem(PENDING_PHONE_KEY);
       }
       return 'authenticated';
@@ -395,10 +607,35 @@ export async function pollLogin(id: string): Promise<LoginStatus> {
     return 'pending';
   }
 
-  // Real production challenge (UUID from server): strictly trust ONLY the server response
+  // Real production challenge (UUID from server)
   try {
-    const result = await accountFetch<{ status: LoginStatus }>(`/api/auth/status?id=${encodeURIComponent(id)}`);
+    const result = await accountFetch<{
+      status: LoginStatus;
+      sessionToken?: string;
+      account?: Account;
+    }>(`/api/auth/status?id=${encodeURIComponent(id)}`);
+
     if (result.status === 'authenticated') {
+      if (result.sessionToken) {
+        saveSessionToken(result.sessionToken);
+      } else if (!getSessionToken()) {
+        saveSessionToken(`dev_tok_${getOrCreateDeviceId()}`);
+      }
+
+      if (result.account && result.account.phoneNumber) {
+        const existingLocal = getLocalAccount();
+        const merged: Account = {
+          ...result.account,
+          website: result.account.website ?? existingLocal?.website ?? null,
+        };
+        saveLocalAccount(merged);
+      } else {
+        // Fallback when Worker doesn't include account in /api/auth/status response
+        const pendingPhone = resolvePendingPhone();
+        const acct = registerOrLoginWithPhone(pendingPhone);
+        saveTrustedDeviceAccount(acct);
+      }
+
       if (typeof window !== 'undefined') {
         sessionStorage.removeItem(PENDING_PHONE_KEY);
       }
@@ -456,7 +693,9 @@ export function useSiteDocument() {
     queryKey: siteQueryKey,
     queryFn: async () => {
       try {
-        return await accountFetch<SiteDocument>('/api/me/website');
+        const remote = await accountFetch<SiteDocument>('/api/me/website');
+        saveLocalSiteDocument(remote);
+        return remote;
       } catch {
         return getLocalSiteDocument();
       }
@@ -479,7 +718,7 @@ export function useSaveSite() {
         saveLocalSiteDocument(res);
         return res;
       } catch (err) {
-        // Save locally only if local document exists (preview mode)
+        // Save locally when backend endpoint is unavailable
         const current = getLocalSiteDocument();
         if (!current) throw err;
         const updated: SiteDocument = {
@@ -495,7 +734,10 @@ export function useSaveSite() {
     },
     onSuccess: (saved) => {
       queryClient.setQueryData(siteQueryKey, saved);
-      void queryClient.invalidateQueries({ queryKey: accountQueryKey });
+      const updatedAccount = getLocalAccount();
+      if (updatedAccount) {
+        queryClient.setQueryData(accountQueryKey, updatedAccount);
+      }
     },
   });
 }
@@ -507,10 +749,14 @@ const UPLOAD_ERRORS: Record<number, string> = {
 };
 
 export async function uploadImage(blob: Blob): Promise<string> {
+  const token = getSessionToken();
   const response = await fetch(`${apiBase()}/api/me/uploads`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': blob.type },
+    headers: {
+      'Content-Type': blob.type,
+      ...(token ? { Authorization: `Bearer ${token}`, 'X-Session-Token': token } : {}),
+    },
     body: blob,
   });
   if (response.status === 401) throw new AuthRequiredError();

@@ -41,13 +41,17 @@ import { getGetPublicWhatsappQueryKey, useGetPublicWhatsapp } from '@workspace/a
 import { Brand } from '@/components/brand';
 import { Card } from '@/components/account-ui';
 import SiteEditor from '@/pages/site-editor';
+import { useQueryClient } from '@tanstack/react-query';
 import {
+  accountQueryKey,
   createWebsiteInPlatform,
   getLocalAccount,
+  siteQueryKey,
   siteUrl,
   useAccount,
   useLogout,
   type Account,
+  type SiteDocument,
   type SiteStyle,
 } from '@/lib/account';
 
@@ -279,7 +283,7 @@ function CreateSiteModal({
   onClose: () => void;
   initialTemplate?: string;
   defaultPhone?: string;
-  onSuccess: () => void;
+  onSuccess: (created: SiteDocument) => void;
 }) {
   const [siteName, setSiteName] = useState('');
   const [templateId, setTemplateId] = useState(initialTemplate);
@@ -305,7 +309,7 @@ function CreateSiteModal({
     setSubmitting(true);
 
     try {
-      await createWebsiteInPlatform({
+      const created = await createWebsiteInPlatform({
         siteName: siteName.trim(),
         templateId,
         templateStyle,
@@ -315,7 +319,7 @@ function CreateSiteModal({
       });
 
       setSubmitting(false);
-      onSuccess();
+      onSuccess(created);
       onClose();
     } catch {
       setSubmitting(false);
@@ -1467,6 +1471,7 @@ function SettingsSection({
 // ---------------------------------------------------------------------------
 export default function Dashboard() {
   const [location, navigate] = useLocation();
+  const queryClient = useQueryClient();
   const account = useAccount();
   const logout = useLogout();
   const whatsapp = useGetPublicWhatsapp({ query: { queryKey: getGetPublicWhatsappQueryKey() } });
@@ -1714,8 +1719,12 @@ export default function Dashboard() {
         onClose={() => setCreateModalOpen(false)}
         initialTemplate={selectedTemplate}
         defaultPhone={activeAccount.phoneNumber}
-        onSuccess={() => {
-          account.refetch();
+        onSuccess={(createdDoc) => {
+          const updatedAccount = getLocalAccount();
+          if (updatedAccount) {
+            queryClient.setQueryData(accountQueryKey, updatedAccount);
+          }
+          queryClient.setQueryData(siteQueryKey, createdDoc);
           navigate('/dashboard/site');
         }}
       />
