@@ -82,164 +82,154 @@ const TONE_STYLES: Record<Tone, { bg: string; text: string; border: string }> = 
   teal: { bg: '#F0FDFA', text: '#0F766E', border: '#99F6E4' },
 };
 
-const GROUPS = [
-  { id: 'site', title: 'مواقع وحضور رقمي', hint: 'واجهتك الاحترافية أمام العالم' },
-  { id: 'sell', title: 'البيع وإدارة العملاء', hint: 'حوّل الزوار إلى طلبات ومواعيد' },
-  { id: 'collect', title: 'التفاعل والمسابقات', hint: 'اسمع جمهورك ونمّي ولاءهم' },
-];
+interface SubServiceItem {
+  id: string;
+  icon: LucideIcon;
+  title: string;
+  shortLabel: string;
+  desc: string;
+  templateBadge: string;
+  tone: Tone;
+  keywords: string;
+  templateId: string;
+}
 
-const SERVICES: Service[] = [
+interface ConsolidatedGroup {
+  id: string;
+  badge: string;
+  title: string;
+  subtitle: string;
+  items: SubServiceItem[];
+}
+
+const CONSOLIDATED_GROUPS: ConsolidatedGroup[] = [
   {
-    id: 'website',
-    group: 'site',
-    icon: Globe,
-    title: 'موقع نشاط متكامل',
-    desc: 'متجر، مطعم، خدمات أو معرض أعمال بـ 4 أنماط احترافية.',
-    tone: 'blue',
-    live: true,
-    keywords: 'موقع صفحة متجر مطعم بورتفوليو نشاط',
-    templateId: 'store',
+    id: 'websites',
+    badge: 'القسم الأول · 01',
+    title: 'خدمات المواقع والواجهات الرقمية',
+    subtitle: 'مواقع متكاملة للمتاجر والمطاعم والشركات والصفحات الشخصية والبطاقات الرقمية',
+    items: [
+      {
+        id: 'store',
+        icon: ShoppingBag,
+        title: 'متجر إلكتروني وسلة طلبات',
+        shortLabel: 'متجر إلكتروني',
+        desc: 'عرض المنتجات بالتصنيفات والأسعار مع سلة شراء ذكية ترسل الطلب لواتساب.',
+        templateBadge: 'قالب المتجر والسلة',
+        tone: 'emerald',
+        keywords: 'متجر بيع منتجات سلة تسوق',
+        templateId: 'store',
+      },
+      {
+        id: 'restaurant',
+        icon: UtensilsCrossed,
+        title: 'منيو مطعم أو كافيه رقمي QR',
+        shortLabel: 'مطعم / كافيه',
+        desc: 'قائمة طعام ومشروبات مقسمة بالأصناف والأسعار والصور مع طلب مباشر.',
+        templateBadge: 'قالب المنيو الرقمي',
+        tone: 'teal',
+        keywords: 'منيو قائمة مطعم كافيه طاولة',
+        templateId: 'restaurant',
+      },
+      {
+        id: 'services',
+        icon: Globe,
+        title: 'موقع شركة أو مؤسسة خدمية',
+        shortLabel: 'شركة / مؤسسة',
+        desc: 'واجهة رسمية للشركات والمؤسسات تستعرض الخدمات، فريق العمل، وبيانات التواصل.',
+        templateBadge: 'قالب الشركات والخدمات',
+        tone: 'blue',
+        keywords: 'شركة مؤسسة موقع رسمي خدمات',
+        templateId: 'services',
+      },
+      {
+        id: 'portfolio',
+        icon: Sparkles,
+        title: 'صفحة شخصية ومعرض أعمال (Portfolio)',
+        shortLabel: 'صفحة شخصية',
+        desc: 'معرض مشاريع ومهارات وسيرة مهنية للمصممين والمستقلين والخبراء.',
+        templateBadge: 'قالب معرض الأعمال',
+        tone: 'indigo',
+        keywords: 'بورتفوليو معرض أعمال صفحة شخصية مستقل',
+        templateId: 'portfolio',
+      },
+      {
+        id: 'vcard',
+        icon: User,
+        title: 'بطاقة تواصل رقمية وروابط (Bio Links)',
+        shortLabel: 'بطاقة رقمية وروابط',
+        desc: 'صفحة روابط موحدة تجمع حساباتك، أرقامك، وروابطك المهمة في واجهة جوال.',
+        templateBadge: 'قالب البطاقة والروابط',
+        tone: 'violet',
+        keywords: 'بطاقة روابط بايو تواصل تعريفية',
+        templateId: 'vcard',
+      },
+    ],
   },
   {
-    id: 'profile',
-    group: 'site',
-    icon: User,
-    title: 'صفحة تعريفية وروابط (Bio)',
-    desc: 'كل روابطك وبطاقتك التعريفية في صفحة واحدة مع كود QR.',
-    tone: 'indigo',
-    live: true,
-    keywords: 'بروفايل تعريفية روابط بطاقة',
-    templateId: 'portfolio',
-  },
-  {
-    id: 'store',
-    group: 'sell',
-    icon: ShoppingBag,
-    title: 'متجر وسلة طلبات',
-    desc: 'سلة طلبات ذكية ترسل تفاصيل الشراء مباشرة إلى واتساب.',
-    tone: 'emerald',
-    live: true,
-    keywords: 'متجر بيع منتجات سلة',
-    templateId: 'store',
-  },
-  {
-    id: 'menu',
-    group: 'sell',
-    icon: UtensilsCrossed,
-    title: 'منيو طعام رقمي QR',
-    desc: 'قائمة طعام للمطاعم والمقاهي مع صور وأسعار وتصنيفات.',
-    tone: 'teal',
-    live: true,
-    keywords: 'منيو قائمة مطعم كافيه طاولة',
-    templateId: 'restaurant',
-  },
-  {
-    id: 'booking',
-    group: 'sell',
-    icon: CalendarCheck,
-    title: 'حجز مواعيد واستشارات',
-    desc: 'تقويم مواعيد مرتب مع تذكيرات تلقائية للعملاء.',
-    tone: 'blue',
-    live: true,
-    keywords: 'حجز موعد عيادة صالون استشارة',
-    templateId: 'booking',
-  },
-  {
-    id: 'services_pkg',
-    group: 'sell',
-    icon: Briefcase,
-    title: 'باقات وعروض الخدمات',
-    desc: 'عرض باقات الخدمات مع الأسعار وزر طلب فوري.',
-    tone: 'indigo',
-    live: true,
-    keywords: 'خدمات باقات تسعير عروض',
-    templateId: 'services',
-  },
-  {
-    id: 'survey',
-    group: 'collect',
-    icon: ClipboardList,
-    title: 'استبيان واستطلاع رأي',
-    desc: 'نماذج أسئلة متعددة وتلخيص فوري للردود.',
-    tone: 'violet',
-    live: true,
-    keywords: 'استبيان استطلاع أسئلة رأي',
-    templateId: 'services',
-  },
-  {
-    id: 'quiz',
-    group: 'collect',
-    icon: ListChecks,
-    title: 'اختبار وتقييم تفاعلي',
-    desc: 'تصحيح تلقائي ونتيجة تفاعلية فورية لكل مشارك.',
-    tone: 'blue',
-    live: true,
-    keywords: 'اختبار مسابقة كويز تقييم',
-    templateId: 'portfolio',
-  },
-  {
-    id: 'poll',
-    group: 'collect',
-    icon: BarChart3,
-    title: 'تصويت واستفتاء حي',
-    desc: 'صوت واحد لكل زائر ونتائج تصويت تظهر لحظياً.',
-    tone: 'teal',
-    live: true,
-    keywords: 'تصويت استفتاء جمهور',
-    templateId: 'services',
-  },
-  {
-    id: 'giveaway',
-    group: 'collect',
-    icon: Gift,
-    title: 'سحب وجوائز شفاف',
-    desc: 'تسجيل المشاركين وسحب عشوائي إلكتروني موثوق.',
-    tone: 'rose',
-    live: true,
-    keywords: 'سحب جائزة هدية قرعة',
-    templateId: 'services',
-  },
-  {
-    id: 'invite',
-    group: 'collect',
-    icon: CalendarDays,
-    title: 'دعوة وتأكيد حضور (RSVP)',
-    desc: 'بطاقة دعوة أنيقة وعدّاد للمؤكدين مع رمز QR لدخول الحفل.',
-    tone: 'violet',
-    live: true,
-    keywords: 'دعوة زواج مناسبة حضور حفل',
-    templateId: 'booking',
-  },
-  {
-    id: 'loyalty',
-    group: 'sell',
-    icon: BadgeCheck,
-    title: 'بطاقة ولاء وختم إلكتروني',
-    desc: 'ختم رقمي لكل زيارة ومكافأة الزيارة العاشرة مجاناً.',
-    tone: 'rose',
-    live: true,
-    keywords: 'ولاء ختم نقاط مكافآت',
-    templateId: 'store',
-  },
-  {
-    id: 'reviews',
-    group: 'sell',
-    icon: Star,
-    title: 'موجّه تقييمات خرائط قوقل',
-    desc: 'توجيه العملاء الراضين لتقييم نشاطك على Google Maps.',
-    tone: 'emerald',
-    live: true,
-    keywords: 'تقييم تقييمات مراجعات قوقل',
-    templateId: 'services',
+    id: 'tools',
+    badge: 'القسم الثاني · 02',
+    title: 'الخدمات التفاعلية والأدوات الذكية',
+    subtitle: 'أدوات تفاعلية مستقلة للاستبيانات وحجز المواعيد والدعوات وعروض الأسعار',
+    items: [
+      {
+        id: 'survey',
+        icon: ClipboardList,
+        title: 'استبيان واستطلاع رأي العملاء',
+        shortLabel: 'استبيان وتقييم',
+        desc: 'نموذج استبيان تفاعلي مستقل بتقييم النجوم والأسئلة المتعددة وملخص الردود.',
+        templateBadge: 'قالب الاستبيان التفاعلي',
+        tone: 'violet',
+        keywords: 'استبيان استطلاع تقييم أسئلة رأي',
+        templateId: 'survey',
+      },
+      {
+        id: 'booking',
+        icon: CalendarCheck,
+        title: 'نظام حجز المواعيد والاستشارات',
+        shortLabel: 'حجز المواعيد',
+        desc: 'قالب حجوزات مخصص باختيار الخدمة والتاريخ والوقت وتأكيد الموعد مباشرة.',
+        templateBadge: 'قالب جدول الحجوزات',
+        tone: 'blue',
+        keywords: 'حجز موعد عيادة صالون استشارة',
+        templateId: 'booking',
+      },
+      {
+        id: 'rsvp',
+        icon: CalendarDays,
+        title: 'دعوة فعالية وتأكيد حضور (RSVP)',
+        shortLabel: 'دعوة وتأكيد حضور',
+        desc: 'بطاقة دعوة رسمية للمناسبات والفعاليات مع برنامج الحفل ونموذج تأكيد الحضور.',
+        templateBadge: 'قالب الدعوات وتأكيد الحضور',
+        tone: 'rose',
+        keywords: 'دعوة فعالية حفل مناسبة حضور',
+        templateId: 'rsvp',
+      },
+      {
+        id: 'invoice',
+        icon: Briefcase,
+        title: 'باقات الأسعار وحاسبة عروض الخدمات',
+        shortLabel: 'باقات وعروض أسعار',
+        desc: 'قالب تفاعلي يتيح للعميل تحديد الباقات المطلوبة وحساب التكلفة الإجمالية فوراً.',
+        templateBadge: 'قالب حاسبة الباقات',
+        tone: 'emerald',
+        keywords: 'باقات تسعير عروض أسعار فاتورة',
+        templateId: 'invoice',
+      },
+    ],
   },
 ];
 
 const TEMPLATE_NAMES: Record<string, string> = {
   store: 'متجر إلكتروني',
   restaurant: 'مطعم ومقهى',
-  services: 'خدمات وأعمال',
-  portfolio: 'معرض أعمال',
+  services: 'شركة وخدمات',
+  portfolio: 'صفحة شخصية وأعمال',
+  vcard: 'بطاقة رقمية وروابط',
+  survey: 'استبيان واستطلاع رأي',
   booking: 'حجز مواعيد',
+  rsvp: 'دعوة وتأكيد حضور',
+  invoice: 'باقات وعروض أسعار',
 };
 const STYLE_NAMES: Record<string, string> = {
   classic: 'كلاسيكي أنيق',
@@ -330,10 +320,22 @@ function CreateSiteModal({
     templateId === 'restaurant'
       ? 'طبق / صنف'
       : templateId === 'services' || templateId === 'booking'
-      ? 'خدمة / باقة'
+      ? 'خدمة'
+      : templateId === 'invoice'
+      ? 'باقة'
+      : templateId === 'survey'
+      ? 'سؤال استبيان'
+      : templateId === 'vcard'
+      ? 'رابط'
+      : templateId === 'rsvp'
+      ? 'فقرة برنامج'
       : templateId === 'portfolio'
       ? 'مشروع / عمل'
       : 'منتج';
+
+  const isSingleStyleTemplate = ['booking', 'survey', 'rsvp', 'invoice', 'vcard'].includes(
+    templateId
+  );
 
   const previewSlug = slugifyUsername(username.trim() || siteName.trim() || 'my-site');
 
@@ -418,49 +420,58 @@ function CreateSiteModal({
         </div>
 
         <form onSubmit={handleCreate} className="mt-6 space-y-5">
-          {/* 1. Template Type */}
-          <div>
+          {/* 1. Template Type Grouped by Category */}
+          <div className="space-y-3">
             <label
               className="block text-xs font-extrabold text-[#0F172A]"
               style={{ color: '#0F172A' }}
             >
-              نوع النشاط أو الخدمة *
+              نوع الخدمة والقالب المخصص *
             </label>
-            <div className="mt-2 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-              {[
-                { id: 'store', label: 'متجر وسلة', icon: Store },
-                { id: 'restaurant', label: 'مطعم ومنيو', icon: UtensilsCrossed },
-                { id: 'services', label: 'خدمات وشركات', icon: Briefcase },
-                { id: 'portfolio', label: 'معرض أعمال', icon: Sparkles },
-                { id: 'booking', label: 'حجز مواعيد', icon: CalendarCheck },
-              ].map(({ id, label, icon: Icon }) => {
-                const active = templateId === id;
-                return (
-                  <button
-                    type="button"
-                    key={id}
-                    onClick={() => setTemplateId(id)}
-                    className="flex items-center gap-2 rounded-xl border p-3 text-right text-xs font-bold transition-all"
-                    style={
-                      active
-                        ? {
-                            backgroundColor: '#0B132B',
-                            borderColor: '#0B132B',
-                            color: '#FFFFFF',
-                          }
-                        : {
-                            backgroundColor: '#F8FAFC',
-                            borderColor: '#CBD5E1',
-                            color: '#334155',
-                          }
-                    }
-                  >
-                    <Icon size={16} style={{ color: active ? '#38BDF8' : '#1D4ED8' }} />
-                    <span>{label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {CONSOLIDATED_GROUPS.map((grp) => (
+              <div
+                key={grp.id}
+                className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }}
+              >
+                <p
+                  className="mb-2 text-[11px] font-black text-[#475569]"
+                  style={{ color: '#475569' }}
+                >
+                  {grp.title}
+                </p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {grp.items.map(({ templateId: id, shortLabel, icon: Icon }) => {
+                    const active = templateId === id;
+                    return (
+                      <button
+                        type="button"
+                        key={id}
+                        onClick={() => setTemplateId(id)}
+                        data-testid={`modal-template-${id}`}
+                        className="flex items-center gap-2 rounded-xl border p-2.5 text-right text-xs font-bold transition-all"
+                        style={
+                          active
+                            ? {
+                                backgroundColor: '#0B132B',
+                                borderColor: '#0B132B',
+                                color: '#FFFFFF',
+                              }
+                            : {
+                                backgroundColor: '#FFFFFF',
+                                borderColor: '#CBD5E1',
+                                color: '#334155',
+                              }
+                        }
+                      >
+                        <Icon size={15} style={{ color: active ? '#38BDF8' : '#1D4ED8' }} />
+                        <span className="truncate">{shortLabel}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* 2. Site Name & Custom Username Slug */}
@@ -561,23 +572,32 @@ function CreateSiteModal({
                 className="block text-xs font-extrabold text-[#0F172A]"
                 style={{ color: '#0F172A' }}
               >
-                نمط التصميم المفضل
+                {isSingleStyleTemplate ? 'نوع القالب التفاعلي' : 'نمط التصميم المفضل'}
               </label>
-              <select
-                value={templateStyle}
-                onChange={(e) => {
-                  const nextStyle = e.target.value as SiteStyle;
-                  setTemplateStyle(nextStyle);
-                  if (nextStyle === 'cinematic') setDarkMode(true);
-                }}
-                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-              >
-                <option value="modern">عصري فائق (Modern)</option>
-                <option value="classic">كلاسيكي هادئ (Classic)</option>
-                <option value="cinematic">سينمائي فاخر (Cinematic)</option>
-                <option value="app">تطبيق جوال تفاعلي (App UI)</option>
-              </select>
+              {isSingleStyleTemplate ? (
+                <div
+                  className="mt-1.5 flex h-11 items-center rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-3 text-xs font-extrabold text-[#1D4ED8]"
+                  style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+                >
+                  قالب تفاعلي مستقل مخصص لـ «{TEMPLATE_NAMES[templateId] || templateId}»
+                </div>
+              ) : (
+                <select
+                  value={templateStyle}
+                  onChange={(e) => {
+                    const nextStyle = e.target.value as SiteStyle;
+                    setTemplateStyle(nextStyle);
+                    if (nextStyle === 'cinematic') setDarkMode(true);
+                  }}
+                  className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
+                  style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                >
+                  <option value="modern">عصري فائق (Modern)</option>
+                  <option value="classic">كلاسيكي هادئ (Classic)</option>
+                  <option value="cinematic">سينمائي فاخر (Cinematic)</option>
+                  <option value="app">تطبيق جوال تفاعلي (App UI)</option>
+                </select>
+              )}
             </div>
 
             <div>
@@ -594,6 +614,12 @@ function CreateSiteModal({
                 placeholder={
                   templateId === 'booking'
                     ? 'احجز الآن'
+                    : templateId === 'survey'
+                    ? 'إرسال التقييم'
+                    : templateId === 'rsvp'
+                    ? 'تأكيد الحضور'
+                    : templateId === 'invoice'
+                    ? 'طلب عرض السعر'
                     : templateId === 'restaurant'
                     ? 'شاهد المنيو واطلب'
                     : 'تواصل واطلب الآن'
@@ -751,23 +777,56 @@ function CreateSiteModal({
                           prev.map((entry, i) => (i === idx ? { ...entry, name: e.target.value } : entry))
                         )
                       }
-                      placeholder={`اسم الـ${itemNoun} *`}
+                      placeholder={
+                        templateId === 'survey'
+                          ? 'نص السؤال (مثال: كيف تقيّم الخدمة؟) *'
+                          : templateId === 'vcard'
+                          ? 'عنوان الرابط (مثال: حسابنا في إنستقرام) *'
+                          : templateId === 'rsvp'
+                          ? 'عنوان الفقرة (مثال: استقبال الضيوف) *'
+                          : `اسم الـ${itemNoun} *`
+                      }
                       className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-4"
                       style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
                     />
-                    {templateId !== 'portfolio' && (
+                    {templateId === 'survey' ? (
                       <input
                         type="text"
-                        value={item.price || ''}
+                        value={item.category || ''}
                         onChange={(e) =>
                           setInitialItems((prev) =>
-                            prev.map((entry, i) => (i === idx ? { ...entry, price: e.target.value } : entry))
+                            prev.map((entry, i) =>
+                              i === idx ? { ...entry, category: e.target.value } : entry
+                            )
                           )
                         }
-                        placeholder="السعر (مثال: 45 ر.س)"
-                        className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-3"
+                        placeholder="الخيارات بفاصلة (ممتاز، جيد، مقبول)"
+                        className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-4"
                         style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
                       />
+                    ) : (
+                      templateId !== 'portfolio' && (
+                        <input
+                          type="text"
+                          value={item.price || ''}
+                          onChange={(e) =>
+                            setInitialItems((prev) =>
+                              prev.map((entry, i) =>
+                                i === idx ? { ...entry, price: e.target.value } : entry
+                              )
+                            )
+                          }
+                          placeholder={
+                            templateId === 'vcard'
+                              ? 'الرابط https://...'
+                              : templateId === 'rsvp'
+                              ? 'التوقيت (مثال: 08:00 م)'
+                              : 'السعر (مثال: 45 ر.س)'
+                          }
+                          className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-3"
+                          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                        />
+                      )
                     )}
                     <input
                       type="text"
@@ -779,9 +838,15 @@ function CreateSiteModal({
                           )
                         )
                       }
-                      placeholder="وصف مختصر"
+                      placeholder={
+                        templateId === 'survey' ? 'توضيح إضافي (اختياري)' : 'وصف مختصر'
+                      }
                       className={`h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-medium text-[#0F172A] ${
-                        templateId === 'portfolio' ? 'sm:col-span-7' : 'sm:col-span-4'
+                        templateId === 'portfolio'
+                          ? 'sm:col-span-7'
+                          : templateId === 'survey'
+                          ? 'sm:col-span-3'
+                          : 'sm:col-span-4'
                       }`}
                       style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
                     />
@@ -966,6 +1031,151 @@ function CopyLinkButton({ url }: { url: string }) {
 // ---------------------------------------------------------------------------
 // Section: Home Dashboard
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Consolidated 2-Group Services Catalog Component (Zero Filler)
+// ---------------------------------------------------------------------------
+function ConsolidatedServicesCatalog({
+  query = '',
+  onOpenCreate,
+}: {
+  query?: string;
+  onOpenCreate: (templateId: string) => void;
+}) {
+  const normalized = query.trim().toLowerCase();
+  const matches = (item: SubServiceItem) =>
+    !normalized ||
+    `${item.title} ${item.shortLabel} ${item.desc} ${item.keywords}`
+      .toLowerCase()
+      .includes(normalized);
+
+  return (
+    <div className="space-y-6">
+      {CONSOLIDATED_GROUPS.map((group) => {
+        const items = group.items.filter(matches);
+        if (items.length === 0) return null;
+
+        return (
+          <Card
+            key={group.id}
+            className="overflow-hidden border border-[#CBD5E1] p-6"
+            style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
+            data-testid={`dashboard-group-${group.id}`}
+          >
+            {/* Consolidated Group Header */}
+            <div
+              className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4"
+              style={{ borderColor: '#E2E8F0' }}
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="rounded-lg bg-[#0B132B] px-2.5 py-0.5 font-mono text-[11px] font-extrabold text-[#38BDF8]"
+                    style={{ backgroundColor: '#0B132B', color: '#38BDF8' }}
+                  >
+                    {group.badge}
+                  </span>
+                  <span
+                    className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-2.5 py-0.5 text-[11px] font-extrabold text-[#1D4ED8]"
+                    style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+                  >
+                    {items.length} قوالب مستقلة
+                  </span>
+                </div>
+                <h2
+                  className="mt-2 text-lg font-black text-[#0F172A]"
+                  style={{ color: '#0F172A' }}
+                >
+                  {group.title}
+                </h2>
+                <p
+                  className="mt-0.5 text-xs font-medium text-[#475569]"
+                  style={{ color: '#475569' }}
+                >
+                  {group.subtitle}
+                </p>
+              </div>
+            </div>
+
+            {/* Organized Sub-Services Grid */}
+            <div className="mt-5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((service) => {
+                const Icon = service.icon;
+                const tone = TONE_STYLES[service.tone];
+                return (
+                  <div
+                    key={service.id}
+                    className="flex flex-col justify-between rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 transition-all duration-200 hover:border-[#2563EB] hover:bg-white hover:shadow-sm"
+                    style={{
+                      backgroundColor: '#F8FAFC',
+                      borderColor: '#CBD5E1',
+                      color: '#0F172A',
+                    }}
+                    data-testid={`service-item-${service.id}`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className="grid size-10 shrink-0 place-items-center rounded-xl border"
+                          style={{
+                            backgroundColor: tone.bg,
+                            borderColor: tone.border,
+                            color: tone.text,
+                          }}
+                        >
+                          <Icon size={19} />
+                        </span>
+                        <span
+                          className="rounded-lg border px-2.5 py-0.5 text-[11px] font-extrabold"
+                          style={{
+                            backgroundColor: tone.bg,
+                            borderColor: tone.border,
+                            color: tone.text,
+                          }}
+                        >
+                          {service.templateBadge}
+                        </span>
+                      </div>
+
+                      <h3
+                        className="mt-3 text-sm font-black text-[#0F172A]"
+                        style={{ color: '#0F172A' }}
+                      >
+                        {service.title}
+                      </h3>
+                      <p
+                        className="mt-1 text-xs font-medium leading-5 text-[#475569]"
+                        style={{ color: '#475569' }}
+                      >
+                        {service.desc}
+                      </p>
+                    </div>
+
+                    <div className="mt-4 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => onOpenCreate(service.templateId)}
+                        data-testid={`button-launch-${service.templateId}`}
+                        className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-[#0B132B] text-xs font-bold text-white transition-colors hover:bg-[#1D4ED8]"
+                        style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
+                      >
+                        <Plus size={14} />
+                        <span>إنشاء بـ {service.templateBadge}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section: Home Dashboard
+// ---------------------------------------------------------------------------
 function HomeSection({
   account,
   onOpenCreate,
@@ -977,16 +1187,11 @@ function HomeSection({
   const inputRef = useRef<HTMLInputElement>(null);
   const website = account.website;
 
-  const normalized = query.trim().toLowerCase();
-  const matches = (service: Service) =>
-    !normalized ||
-    `${service.title} ${service.desc} ${service.keywords}`.toLowerCase().includes(normalized);
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-7">
       {/* Executive Royal Sapphire Hero Welcome Banner */}
       <div
-        className="relative overflow-hidden rounded-3xl border border-[#1E293B] bg-[#0B132B] px-6 py-8 text-white shadow-[0_24px_60px_-24px_rgba(6,11,24,0.45)] sm:px-10 sm:py-11"
+        className="relative overflow-hidden rounded-3xl border border-[#1E293B] bg-[#0B132B] px-6 py-7 text-white shadow-[0_24px_60px_-24px_rgba(6,11,24,0.45)] sm:px-9 sm:py-9"
         style={{
           background: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
           backgroundColor: '#0B132B',
@@ -994,13 +1199,7 @@ function HomeSection({
           color: '#FFFFFF',
         }}
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -left-20 -top-24 size-72 rounded-full blur-3xl"
-          style={{ backgroundColor: 'rgba(37, 99, 235, 0.25)' }}
-        />
-
-        <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative z-10 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p
               className="text-xs font-extrabold tracking-wide text-[#38BDF8]"
@@ -1009,34 +1208,34 @@ function HomeSection({
               {greeting()} · استوديو ORxai السحابي
             </p>
             <h1
-              className="mt-2 text-[clamp(1.6rem,3.6vw,2.35rem)] font-black leading-tight tracking-tight text-white"
+              className="mt-1.5 text-[clamp(1.5rem,3.2vw,2.15rem)] font-black leading-tight tracking-tight text-white"
               style={{ color: '#FFFFFF' }}
             >
-              استوديو إدارة الخدمات والمواقع
+              إدارة المواقع والخدمات التفاعلية
             </h1>
             <p
-              className="mt-2 max-w-2xl text-sm font-medium leading-relaxed text-[#CBD5E1]"
+              className="mt-1.5 max-w-xl text-xs font-medium leading-relaxed text-[#CBD5E1] sm:text-sm"
               style={{ color: '#CBD5E1' }}
             >
-              أنشئ وخصص وأطلق موقع مشروعك وخدماتك الـ 13 بالكامل من هنا، مع مساعد واتساب الموثق للتعديلات السريعة والإحصائيات.
+              قسمان منظمان بدون حشو: خدمات المواقع والواجهات الرقمية، والخدمات التفاعلية (الاستبيان، الحجز، الدعوات، الباقات) — لكل خدمة قالبها المخصص.
             </p>
           </div>
 
           <button
             onClick={() => onOpenCreate('store')}
-            className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-6 text-sm font-bold text-white shadow-[0_14px_30px_-10px_rgba(37,99,235,0.65)] transition-all hover:bg-[#1D4ED8]"
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 text-xs font-bold text-white shadow-md transition-all hover:bg-[#1D4ED8] sm:text-sm"
             style={{ backgroundColor: '#2563EB', color: '#FFFFFF' }}
             data-testid="button-create-service-header"
           >
-            <Plus size={18} />
+            <Plus size={17} />
             <span>إنشاء خدمة / موقع جديد</span>
           </button>
         </div>
 
         {/* High-Contrast Search Bar */}
-        <div className="relative z-10 mt-7 max-w-2xl">
+        <div className="relative z-10 mt-5 max-w-xl">
           <Search
-            size={19}
+            size={18}
             className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2"
             style={{ color: '#475569' }}
           />
@@ -1044,8 +1243,8 @@ function HomeSection({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="ابحث بين الخدمات: متجر، منيو طعام، حجز مواعيد، صفحة تعريفية، استبيان..."
-            className="h-13 w-full rounded-xl border border-[#CBD5E1] bg-white pl-5 pr-12 text-sm font-semibold text-[#0F172A] shadow-sm outline-none transition-all focus:border-[#38BDF8]"
+            placeholder="ابحث: متجر، مطعم، استبيان، حجز مواعيد، دعوة، باقات..."
+            className="h-11 w-full rounded-xl border border-[#CBD5E1] bg-white pl-4 pr-11 text-xs font-semibold text-[#0F172A] shadow-xs outline-none transition-all focus:border-[#38BDF8] sm:text-sm"
             style={{
               backgroundColor: '#FFFFFF',
               borderColor: '#CBD5E1',
@@ -1060,7 +1259,7 @@ function HomeSection({
       {/* Active Website Preview Widget or Empty State Banner */}
       {website ? (
         <Card
-          className="overflow-hidden border-[#93C5FD] p-6"
+          className="overflow-hidden border-[#93C5FD] p-5"
           style={{
             background: 'linear-gradient(135deg, #FFFFFF 0%, #EFF6FF 100%)',
             backgroundColor: '#FFFFFF',
@@ -1069,26 +1268,32 @@ function HomeSection({
           }}
         >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3.5">
               <span
-                className="grid size-14 shrink-0 place-items-center rounded-2xl text-white shadow-sm"
+                className="grid size-12 shrink-0 place-items-center rounded-2xl text-white shadow-xs"
                 style={{ backgroundColor: website.themeColor || '#1D4ED8', color: '#FFFFFF' }}
               >
-                <Globe size={26} />
+                <Globe size={22} />
               </span>
               <div>
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
                   <h3
-                    className="text-lg font-black text-[#0F172A]"
+                    className="text-base font-black text-[#0F172A]"
                     style={{ color: '#0F172A' }}
                   >
                     {website.siteName}
                   </h3>
                   <span
+                    className="rounded-md border border-[#BFDBFE] bg-white px-2 py-0.5 text-[11px] font-extrabold text-[#1D4ED8]"
+                    style={{ backgroundColor: '#FFFFFF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+                  >
+                    {TEMPLATE_NAMES[website.templateId] ?? website.templateId}
+                  </span>
+                  <span
                     className="text-xs font-extrabold"
                     style={{ color: '#059669' }}
                   >
-                    ● منشور ونشط
+                    ● منشور
                   </span>
                 </div>
                 <p
@@ -1101,14 +1306,14 @@ function HomeSection({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <Link
                 href="/dashboard/site"
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-4 py-2.5 text-xs font-bold text-white shadow-xs transition-colors hover:bg-[#1E40AF]"
                 style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
               >
                 <Pencil size={14} />
-                <span>تخصيص الموقع</span>
+                <span>تخصيص القالب</span>
               </Link>
               <a
                 href={siteUrl(website.username)}
@@ -1118,143 +1323,16 @@ function HomeSection({
                 style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
               >
                 <ExternalLink size={14} />
-                <span>فتح الموقع</span>
+                <span>معاينة حية</span>
               </a>
               <CopyLinkButton url={siteUrl(website.username)} />
             </div>
           </div>
         </Card>
-      ) : (
-        <Card
-          className="border-2 border-dashed border-[#93C5FD] p-6 sm:p-8"
-          style={{
-            backgroundColor: '#FFFFFF',
-            borderColor: '#93C5FD',
-            color: '#0F172A',
-          }}
-        >
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <span
-                className="grid size-14 shrink-0 place-items-center rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]"
-                style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-              >
-                <Sparkles size={26} />
-              </span>
-              <div>
-                <h3
-                  className="text-lg font-black text-[#0F172A]"
-                  style={{ color: '#0F172A' }}
-                >
-                  مساحة عملك جاهزة لإطلاق أول موقع أو خدمة
-                </h3>
-                <p
-                  className="mt-1 text-xs font-medium text-[#475569] sm:text-sm"
-                  style={{ color: '#475569' }}
-                >
-                  لم تنشئ أي موقع بعد. اختر نوع نشاطك من الأسفل، أو ابدأ بإنشاء موقعك الآن في دقيقة واحدة.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => onOpenCreate('store')}
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#1D4ED8] px-5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#1E40AF]"
-              style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-            >
-              <Plus size={16} />
-              <span>أنشئ موقعك الأول الآن</span>
-            </button>
-          </div>
-        </Card>
-      )}
+      ) : null}
 
-      {/* Services Catalog */}
-      {GROUPS.map((group) => {
-        const items = SERVICES.filter((service) => service.group === group.id && matches(service));
-        if (items.length === 0) return null;
-        return (
-          <section key={group.id}>
-            <div className="mb-4 flex flex-wrap items-baseline gap-3">
-              <h2
-                className="text-lg font-black text-[#0F172A]"
-                style={{ color: '#0F172A' }}
-              >
-                {group.title}
-              </h2>
-              <span
-                className="text-xs font-bold text-[#64748B]"
-                style={{ color: '#64748B' }}
-              >
-                · {group.hint}
-              </span>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {items.map((service) => {
-                const Icon = service.icon;
-                const tone = TONE_STYLES[service.tone];
-                return (
-                  <div
-                    key={service.id}
-                    className="group flex flex-col justify-between rounded-2xl border border-[#CBD5E1] bg-white p-5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-[#2563EB] hover:shadow-md"
-                    style={{
-                      backgroundColor: '#FFFFFF',
-                      borderColor: '#CBD5E1',
-                      color: '#0F172A',
-                    }}
-                  >
-                    <div>
-                      <div className="flex items-start justify-between">
-                        <span
-                          className="grid size-12 place-items-center rounded-xl border"
-                          style={{
-                            backgroundColor: tone.bg,
-                            borderColor: tone.border,
-                            color: tone.text,
-                          }}
-                        >
-                          <Icon size={22} />
-                        </span>
-                        <span
-                          className="text-[11px] font-extrabold"
-                          style={{ color: tone.text }}
-                        >
-                          متاح في الاستوديو
-                        </span>
-                      </div>
-                      <h3
-                        className="mt-4 text-[15px] font-black text-[#0F172A]"
-                        style={{ color: '#0F172A' }}
-                      >
-                        {service.title}
-                      </h3>
-                      <p
-                        className="mt-1.5 text-[13px] font-medium leading-6 text-[#475569]"
-                        style={{ color: '#475569' }}
-                      >
-                        {service.desc}
-                      </p>
-                    </div>
-
-                    <div
-                      className="mt-5 border-t border-[#E2E8F0] pt-4"
-                      style={{ borderColor: '#E2E8F0' }}
-                    >
-                      <button
-                        onClick={() => onOpenCreate(service.templateId)}
-                        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#0B132B] text-xs font-bold text-white transition-colors hover:bg-[#1D4ED8]"
-                        style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
-                      >
-                        <Plus size={14} />
-                        <span>ابدأ الإنشاء والتخصيص</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })}
+      {/* Consolidated 2-Group Services Catalog */}
+      <ConsolidatedServicesCatalog query={query} onOpenCreate={onOpenCreate} />
     </div>
   );
 }
@@ -1379,36 +1457,12 @@ function ServicesSection({
             className="border-t border-[#E2E8F0] bg-[#F8FAFC] px-6 py-4 text-xs font-medium leading-6 text-[#475569]"
             style={{ backgroundColor: '#F8FAFC', borderColor: '#E2E8F0', color: '#475569' }}
           >
-            يمكنك تعديل المنتجات والأطباق وقوائم الأسعار والصور بالكامل من هنا. كما يمكنك استخدام مساعد واتساب السريع لتعديل النصوص والأسعار بكلمة واحدة!
+            يمكنك تعديل العناصر والأسئلة والباقات والروابط بالكامل من محرر الاستوديو، أو تغيير نوع القالب من الأقسام المجمّعة أدناه.
           </div>
         </Card>
-      ) : (
-        <Card className="px-6 py-16 text-center">
-          <span
-            className="mx-auto mb-4 grid size-16 place-items-center rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]"
-            style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-          >
-            <Globe size={28} />
-          </span>
-          <h2 className="text-xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-            لم تنشئ أي موقع بعد
-          </h2>
-          <p
-            className="mx-auto mt-2 max-w-sm text-sm font-medium text-[#475569]"
-            style={{ color: '#475569' }}
-          >
-            اضغط على الزر أدناه لإنشاء وتخصيص موقعك مباشرة داخل المنصة خلال أقل من دقيقة.
-          </p>
-          <button
-            onClick={() => onOpenCreate('store')}
-            className="mt-6 inline-flex h-12 items-center gap-2 rounded-xl bg-[#1D4ED8] px-6 text-sm font-bold text-white shadow-md transition-colors hover:bg-[#1E40AF]"
-            style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-          >
-            <Plus size={18} />
-            <span>أنشئ موقعك الآن في الاستوديو</span>
-          </button>
-        </Card>
-      )}
+      ) : null}
+
+      <ConsolidatedServicesCatalog onOpenCreate={onOpenCreate} />
     </div>
   );
 }
@@ -1936,6 +1990,16 @@ export default function Dashboard() {
     setSelectedTemplate(template);
     setCreateModalOpen(true);
   };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('create') === '1') {
+      const tpl = params.get('template') || 'store';
+      setSelectedTemplate(tpl);
+      setCreateModalOpen(true);
+    }
+  }, []);
 
   const doLogout = () => {
     logout.mutate(undefined, {

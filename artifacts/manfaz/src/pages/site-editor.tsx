@@ -132,6 +132,101 @@ const COLLECTIONS: Record<string, CollectionDef> = {
       IMAGE,
     ],
   },
+  survey: {
+    key: 'items',
+    title: 'أسئلة الاستبيان والتقييم',
+    singular: 'سؤال',
+    fields: [
+      { keys: ['name', 'title'], label: 'نص السؤال', placeholder: 'مثال: كيف تقيّم جودة الخدمة؟' },
+      {
+        keys: ['category'],
+        label: 'خيارات الإجابة (افصل بفاصلة)',
+        placeholder: 'ممتاز، جيد جداً، جيد، مقبول',
+      },
+      {
+        keys: ['description'],
+        label: 'توضيح إضافي (اختياري)',
+        kind: 'textarea',
+        placeholder: 'وصف مختصر يظهر تحت السؤال',
+      },
+    ],
+  },
+  vcard: {
+    key: 'items',
+    title: 'الروابط والقنوات المميزة',
+    singular: 'رابط',
+    fields: [
+      {
+        keys: ['name', 'title'],
+        label: 'عنوان الرابط أو الزر',
+        placeholder: 'مثال: حسابنا على إنستقرام أو ملف الأعمال',
+      },
+      {
+        keys: ['price'],
+        label: 'الرابط (URL) أو المعرّف',
+        placeholder: 'https://...',
+      },
+      {
+        keys: ['description'],
+        label: 'وصف مختصر',
+        placeholder: 'يظهر أسفل عنوان الرابط',
+      },
+    ],
+  },
+  rsvp: {
+    key: 'items',
+    title: 'فقرات وبرنامج الفعالية',
+    singular: 'فقرة',
+    fields: [
+      {
+        keys: ['name', 'title'],
+        label: 'عنوان الفقرة',
+        placeholder: 'مثال: استقبال الضيوف والتسجيل',
+      },
+      {
+        keys: ['price'],
+        label: 'التوقيت',
+        placeholder: '07:30 م',
+        half: true,
+      },
+      {
+        keys: ['description'],
+        label: 'التفاصيل أو المتحدث',
+        kind: 'textarea',
+        placeholder: 'تفاصيل إضافية عن الفقرة',
+      },
+    ],
+  },
+  invoice: {
+    key: 'services',
+    title: 'الباقات وبنود عرض السعر',
+    singular: 'باقة',
+    fields: [
+      {
+        keys: ['name', 'title'],
+        label: 'اسم الباقة أو البند',
+        placeholder: 'مثال: باقة النمو المتكاملة',
+      },
+      {
+        keys: ['price'],
+        label: 'السعر',
+        placeholder: '2,500 ر.س',
+        half: true,
+      },
+      {
+        keys: ['duration'],
+        label: 'الدورية أو الوسم',
+        placeholder: 'دفعة واحدة / شهرياً',
+        half: true,
+      },
+      {
+        keys: ['description'],
+        label: 'المميزات المشمولة في الباقة',
+        kind: 'textarea',
+        placeholder: 'اكتب ما تشمله هذه الباقة',
+      },
+    ],
+  },
 };
 
 const STYLE_INFO: Record<SiteStyle, { title: string; desc: string }> = {
@@ -769,7 +864,9 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
       ? list.filter((item) => typeof item.image === 'string' && item.image).length
       : 0;
   const isPortfolio = draft.templateId === 'portfolio';
-  const isBooking = draft.templateId === 'booking';
+  const isSingleLayoutTool = ['booking', 'survey', 'rsvp', 'invoice', 'vcard'].includes(
+    draft.templateId
+  );
   const imageNote = showsPhotos
     ? undefined
     : 'هذه الصورة لن تظهر بالنمط الحالي — اختر "سينمائي" أو "تطبيق جوال" لعرضها.';
@@ -960,7 +1057,7 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
               />
             </div>
 
-            <Field label="نوع النشاط / القالب الرئيسي">
+            <Field label="نوع النشاط / القالب المخصص">
               <select
                 value={draft.templateId}
                 onChange={(e) =>
@@ -969,11 +1066,19 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
                 className={inputClass}
                 style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
               >
-                <option value="store">متجر إلكتروني وسلة طلبات (Store)</option>
-                <option value="restaurant">مطعم أو مقهى ومنيو رقمي (Restaurant)</option>
-                <option value="services">شركة أو باقات خدمات (Services)</option>
-                <option value="portfolio">معرض أعمال أو صفحة شخصية (Portfolio)</option>
-                <option value="booking">حجز مواعيد واستشارات (Booking)</option>
+                <optgroup label="1. خدمات المواقع والواجهات الرقمية">
+                  <option value="store">متجر إلكتروني وسلة طلبات (Store)</option>
+                  <option value="restaurant">مطعم أو مقهى ومنيو رقمي (Restaurant)</option>
+                  <option value="services">موقع شركة أو مؤسسة خدمية (Corporate)</option>
+                  <option value="portfolio">صفحة شخصية ومعرض أعمال (Portfolio)</option>
+                  <option value="vcard">بطاقة تواصل رقمية وروابط (Bio Links)</option>
+                </optgroup>
+                <optgroup label="2. الخدمات التفاعلية والأدوات الذكية">
+                  <option value="survey">استبيان واستطلاع رأي تفاعلي (Survey)</option>
+                  <option value="booking">نظام حجز مواعيد واستشارات (Booking)</option>
+                  <option value="rsvp">دعوة فعالية وتأكيد حضور (RSVP)</option>
+                  <option value="invoice">باقات الأسعار وحاسبة عروض (Packages)</option>
+                </optgroup>
               </select>
             </Field>
 
@@ -1009,12 +1114,12 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
           </Section>
 
           <Section icon={Palette} title="المظهر" subtitle="الشكل والألوان والشعار" defaultOpen>
-            {isBooking ? (
+            {isSingleLayoutTool ? (
               <p
                 className="rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm font-medium leading-6 text-[#475569]"
                 style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#475569' }}
               >
-                قالب الحجوزات له تصميم واحد، فلا يوجد اختيار للنمط.
+                قالب هذه الخدمة التفاعلية مصمم خصيصاً لطبيعتها ولا يحتاج لتغيير النمط.
               </p>
             ) : (
               <div>

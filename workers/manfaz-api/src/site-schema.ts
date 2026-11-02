@@ -3,13 +3,30 @@
 // filtered through it) and the dashboard editor API (user edits are
 // sanitized through it) — so the two can never disagree.
 
+export const VALID_TEMPLATES = [
+  "store",
+  "restaurant",
+  "services",
+  "portfolio",
+  "booking",
+  "survey",
+  "vcard",
+  "rsvp",
+  "invoice",
+] as const;
+export type ValidTemplateId = (typeof VALID_TEMPLATES)[number];
+
 export const STYLES = ["classic", "modern", "cinematic", "app"] as const;
 export type SiteStyle = (typeof STYLES)[number];
 
 export function templateCollection(templateId: string): { key: string; label: string } {
   if (templateId === "services" || templateId === "booking") return { key: "services", label: "خدمة" };
+  if (templateId === "invoice") return { key: "services", label: "باقة" };
   if (templateId === "portfolio") return { key: "projects", label: "مشروع" };
   if (templateId === "restaurant") return { key: "items", label: "طبق" };
+  if (templateId === "survey") return { key: "items", label: "سؤال" };
+  if (templateId === "vcard") return { key: "items", label: "رابط" };
+  if (templateId === "rsvp") return { key: "items", label: "فقرة" };
   return { key: "items", label: "منتج" };
 }
 
@@ -19,11 +36,19 @@ export function templateCollection(templateId: string): { key: string; label: st
 //   restaurant: classic ✗  modern ✗  cinematic ✓  app ✓  (menu lists are text-only)
 //   services:   classic ✗  modern ✗  cinematic ✓  app ✓
 //   portfolio:  classic ✓  modern ✗  cinematic ✓  app ✓
-//   booking:    single style, no per-service photos at all
+//   booking, survey, vcard, rsvp, invoice: dedicated single-layout interactive templates, no per-item photos
 export function supportsCollectionImages(templateId: string, templateStyle: string | undefined): boolean {
+  if (
+    templateId === "booking" ||
+    templateId === "survey" ||
+    templateId === "vcard" ||
+    templateId === "rsvp" ||
+    templateId === "invoice"
+  ) {
+    return false;
+  }
   const style = templateStyle || "classic";
   if (style === "cinematic" || style === "app") return true;
-  if (templateId === "booking") return false;
   if (templateId === "store") return true;
   if (templateId === "portfolio") return style === "classic";
   return false;

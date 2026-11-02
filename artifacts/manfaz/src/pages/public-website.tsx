@@ -1123,6 +1123,1021 @@ function WebsiteLoadingSkeleton() {
   </div>;
 }
 
+// ---------------------------------------------------------------------------
+// SURVEY — Dedicated interactive customer survey & satisfaction rating template
+// ---------------------------------------------------------------------------
+function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: TemplateProps) {
+  const rawQuestions = items(data, ['items', 'services', 'projects']);
+  const extras = useSiteExtras(data);
+  const defaultQuestions: Json[] = [
+    {
+      name: 'كيف تقيّم تجربتك العامة مع خدماتنا؟',
+      category: 'ممتاز، جيد جداً، جيد، مقبول',
+      description: 'اختر التقييم الأقرب لتجربتك الأخيرة معنا',
+    },
+    {
+      name: 'ما مدى سرعة الاستجابة وجودة التعامل؟',
+      category: 'سريع ومميز، جيد، يحتاج تحسين',
+      description: 'رأيك يساعدنا على تطوير سرعة الخدمة',
+    },
+    {
+      name: 'هل توصي بخدماتنا لأصدقائك أو زملائك؟',
+      category: 'بالتأكيد نعم، ربما، لا',
+      description: 'مؤشر التوصية والولاء',
+    },
+  ];
+  const questions: Json[] = (rawQuestions.length > 0 ? rawQuestions : defaultQuestions) as Json[];
+
+  const [overallRating, setOverallRating] = useState<number>(5);
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [participantName, setParticipantName] = useState('');
+  const [notes, setNotes] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+
+  const answeredCount = Object.keys(answers).filter((k) => answers[Number(k)]?.trim()).length;
+  const progressPct = Math.round(((answeredCount + (overallRating > 0 ? 1 : 0)) / (questions.length + 1)) * 100);
+
+  const whatsapp =
+    typeof extras.contact.whatsapp === 'string' && extras.contact.whatsapp
+      ? extras.contact.whatsapp
+      : typeof extras.contact.phone === 'string'
+      ? extras.contact.phone
+      : '';
+
+  const ratingLabels: Record<number, string> = {
+    1: 'غير راضٍ',
+    2: 'مقبول',
+    3: 'جيد',
+    4: 'جيد جداً',
+    5: 'ممتاز جداً',
+  };
+
+  const buildWhatsappSummary = () => {
+    const lines = [
+      `تقييم واستبيان جديد — ${siteName}`,
+      `التقييم العام: ${overallRating}/5 (${ratingLabels[overallRating] || ''})`,
+      ...(participantName.trim() ? [`المشارك: ${participantName.trim()}`] : []),
+      ...questions.map((raw, i) => {
+        const q = asObject(raw);
+        const qTitle = text(q, ['name', 'title'], `سؤال ${i + 1}`);
+        return `${i + 1}. ${qTitle}: ${answers[i] || 'لم يُحدد'}`;
+      }),
+      ...(notes.trim() ? [`ملاحظات إضافية: ${notes.trim()}`] : []),
+    ];
+    return whatsappUrl(whatsapp, lines.join('\n'));
+  };
+
+  return (
+    <SiteShell
+      siteName={siteName}
+      logo={extras.logo}
+      contact={extras.contact}
+      social={extras.social}
+      ctaLabel={text(data, ['ctaLabel'], 'إرسال التقييم')}
+      dark={dark}
+      onToggleDark={onToggleDark}
+      showBranding={showBranding}
+    >
+      <section className="mx-auto max-w-3xl px-5 pb-16 pt-10 md:px-8 md:pt-14" data-testid="template-survey">
+        {/* Survey Header Card */}
+        <div
+          className="relative overflow-hidden rounded-3xl border p-6 sm:p-9"
+          style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="site-pill">
+              <LiveDot color="var(--site-accent)" />
+              {text(data, ['tagline', 'eyebrow'], 'استبيان قياس الرضا والتقييم')}
+            </span>
+            <span className="font-mono text-xs font-extrabold tabular-nums" style={{ color: 'var(--site-accent)' }}>
+              {questions.length} أسئلة سريعة
+            </span>
+          </div>
+
+          <h1 className="mt-4 font-serif text-3xl font-bold leading-snug sm:text-4xl">
+            {text(data, ['headline', 'title', 'heroTitle'], siteName)}
+          </h1>
+          <p className="mt-3 text-base leading-7" style={{ color: 'var(--site-muted)' }}>
+            {text(
+              data,
+              ['description', 'intro', 'about'],
+              'نسعد بمشاركتك رأيك الصريح لتطوير جودة خدماتنا والارتقاء بتجربتك معنا.'
+            )}
+          </p>
+
+          {/* Progress Bar */}
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+              <span>نسبة إكمال الاستبيان</span>
+              <span className="font-mono tabular-nums" style={{ color: 'var(--site-accent)' }}>
+                {progressPct}%
+              </span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full" style={{ background: 'var(--site-soft)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${progressPct}%`, background: 'var(--site-accent)' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {submitted ? (
+          <div
+            className="mt-6 rounded-3xl border p-8 text-center"
+            style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+            data-testid="survey-submitted-card"
+          >
+            <div
+              className="mx-auto grid size-16 place-items-center rounded-2xl text-white shadow-md"
+              style={{ background: 'var(--site-accent)' }}
+            >
+              <BadgeCheck size={32} />
+            </div>
+            <h2 className="mt-5 font-serif text-2xl font-bold">شكراً لمشاركتك رأيك!</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-7" style={{ color: 'var(--site-muted)' }}>
+              تم تسجيل تقييمك ({overallRating} من 5 نجوم) وإجاباتك بنجاح. يمكنك أيضاً إرسال نسخة مباشرة عبر واتساب.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              {whatsapp && (
+                <a
+                  href={buildWhatsappSummary()}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="site-btn-shine inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold text-white"
+                  style={{ background: 'var(--site-accent)' }}
+                  data-testid="link-survey-whatsapp-send"
+                >
+                  <MessageCircle size={17} /> إرسال الإجابات عبر واتساب
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setSubmitted(false)}
+                className="rounded-xl border px-5 py-3 text-sm font-bold"
+                style={{ borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+                data-testid="button-survey-edit"
+              >
+                تعديل الإجابات
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setSubmitted(true);
+            }}
+            className="mt-6 space-y-5"
+          >
+            {/* Overall Star Rating Card */}
+            <div
+              className="rounded-3xl border p-6"
+              style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+            >
+              <span className="text-xs font-bold" style={{ color: 'var(--site-accent)' }}>
+                التقييم العام
+              </span>
+              <h2 className="mt-1 text-lg font-bold">ما تقييمك الإجمالي لتجربتك مع {siteName}؟</h2>
+              <div className="mt-4 flex flex-wrap items-center gap-2.5">
+                {[1, 2, 3, 4, 5].map((star) => {
+                  const active = overallRating >= star;
+                  return (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setOverallRating(star)}
+                      className="flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-sm font-bold transition-all"
+                      style={
+                        active
+                          ? {
+                              background: 'var(--site-accent)',
+                              borderColor: 'var(--site-accent)',
+                              color: '#FFFFFF',
+                            }
+                          : {
+                              background: 'var(--site-soft)',
+                              borderColor: 'var(--site-border)',
+                              color: 'var(--site-ink)',
+                            }
+                      }
+                      data-testid={`button-survey-star-${star}`}
+                    >
+                      <Star size={16} fill={active ? 'currentColor' : 'none'} />
+                      <span className="font-mono tabular-nums">{star}</span>
+                    </button>
+                  );
+                })}
+                <span className="mr-2 text-sm font-bold" style={{ color: 'var(--site-accent)' }}>
+                  {ratingLabels[overallRating]}
+                </span>
+              </div>
+            </div>
+
+            {/* Dynamic Questions */}
+            {questions.map((raw, index) => {
+              const q = asObject(raw);
+              const qTitle = text(q, ['name', 'title'], `السؤال ${index + 1}`);
+              const qHint = text(q, ['description', 'details'], '');
+              const rawChoices = text(q, ['category', 'price'], '');
+              const choices = rawChoices
+                .split(/[,،|/]/)
+                .map((c) => c.trim())
+                .filter(Boolean);
+              const defaultScale = ['ممتاز', 'جيد جداً', 'جيد', 'مقبول', 'غير راضٍ'];
+              const optionPills = choices.length >= 2 ? choices : defaultScale;
+              const currentAnswer = answers[index] || '';
+
+              return (
+                <div
+                  key={index}
+                  className="rounded-3xl border p-6"
+                  style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+                  data-testid={`card-survey-question-${index}`}
+                >
+                  <div className="flex items-start gap-3.5">
+                    <span
+                      className="grid size-9 shrink-0 place-items-center rounded-xl font-mono text-xs font-extrabold tabular-nums"
+                      style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}
+                    >
+                      0{index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base font-bold leading-snug">{qTitle}</h3>
+                      {qHint && (
+                        <p className="mt-1 text-xs leading-5" style={{ color: 'var(--site-muted)' }}>
+                          {qHint}
+                        </p>
+                      )}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {optionPills.map((opt) => {
+                          const selected = currentAnswer === opt;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setAnswers((prev) => ({ ...prev, [index]: opt }))}
+                              className="rounded-xl border px-3.5 py-2 text-xs font-bold transition-all"
+                              style={
+                                selected
+                                  ? {
+                                      background: 'var(--site-accent)',
+                                      borderColor: 'var(--site-accent)',
+                                      color: '#FFFFFF',
+                                    }
+                                  : {
+                                      background: 'var(--site-soft)',
+                                      borderColor: 'var(--site-border)',
+                                      color: 'var(--site-ink)',
+                                    }
+                              }
+                              data-testid={`button-survey-q${index}-opt-${opt}`}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Participant Name & Open Feedback */}
+            <div
+              className="rounded-3xl border p-6 space-y-4"
+              style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+            >
+              <div>
+                <label className="block text-xs font-bold" style={{ color: 'var(--site-ink)' }}>
+                  الاسم الكريم (اختياري)
+                </label>
+                <input
+                  type="text"
+                  value={participantName}
+                  onChange={(e) => setParticipantName(e.target.value)}
+                  placeholder="مثال: عبدالله العتيبي"
+                  className="mt-1.5 h-11 w-full rounded-xl border px-3.5 text-sm font-medium outline-none"
+                  style={{
+                    background: 'var(--site-soft)',
+                    borderColor: 'var(--site-border)',
+                    color: 'var(--site-ink)',
+                  }}
+                  data-testid="input-survey-participant"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold" style={{ color: 'var(--site-ink)' }}>
+                  ملاحظات أو مقترحات إضافية (اختياري)
+                </label>
+                <textarea
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="اكتب أي ملاحظة أو اقتراح يساهم في تحسين تجربتك..."
+                  className="mt-1.5 w-full rounded-xl border p-3.5 text-sm font-medium outline-none"
+                  style={{
+                    background: 'var(--site-soft)',
+                    borderColor: 'var(--site-border)',
+                    color: 'var(--site-ink)',
+                  }}
+                  data-testid="textarea-survey-notes"
+                />
+              </div>
+              <button
+                type="submit"
+                className="site-btn-shine inline-flex h-13 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-white shadow-md transition hover:-translate-y-0.5"
+                style={{ background: 'var(--site-accent)' }}
+                data-testid="button-survey-submit"
+              >
+                <span>{text(data, ['ctaLabel'], 'إرسال التقييم الآن')}</span>
+                <ArrowLeft size={18} />
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
+      <ContactSection contact={extras.contact} social={extras.social} />
+      <FaqSection faq={extras.faq} />
+    </SiteShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// RSVP — Dedicated Event Invitation & Attendance Confirmation template
+// ---------------------------------------------------------------------------
+function RsvpTemplate({ data, siteName, dark, onToggleDark, showBranding }: TemplateProps) {
+  const agenda = items(data, ['items', 'services', 'projects']);
+  const extras = useSiteExtras(data);
+  const [guestName, setGuestName] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
+  const [companions, setCompanions] = useState('1');
+  const [attending, setAttending] = useState<'yes' | 'no'>('yes');
+  const [confirmed, setConfirmed] = useState(false);
+
+  const whatsapp =
+    typeof extras.contact.whatsapp === 'string' && extras.contact.whatsapp
+      ? extras.contact.whatsapp
+      : typeof extras.contact.phone === 'string'
+      ? extras.contact.phone
+      : '';
+
+  const eventDate =
+    extras.hours.length > 0
+      ? `${text(asObject(extras.hours[0]), ['day'], '')} · ${text(asObject(extras.hours[0]), ['time', 'hours'], '')}`
+      : 'الموعد محدد في تفاصيل الدعوة';
+  const eventLocation =
+    typeof extras.contact.address === 'string' && extras.contact.address
+      ? extras.contact.address
+      : 'الموقع محدد في الدعوة';
+
+  const rsvpWhatsappHref = () => {
+    const statusText = attending === 'yes' ? `مؤكد الحضور (عدد الحضور: ${companions})` : 'معتذر عن الحضور';
+    const msg = `تأكيد دعوة: ${siteName}\nالاسم: ${guestName}\nالحالة: ${statusText}${guestPhone ? `\nالجوال: ${guestPhone}` : ''}`;
+    return whatsappUrl(whatsapp, msg);
+  };
+
+  return (
+    <SiteShell
+      siteName={siteName}
+      logo={extras.logo}
+      contact={extras.contact}
+      social={extras.social}
+      ctaLabel={text(data, ['ctaLabel'], 'تأكيد الحضور')}
+      dark={dark}
+      onToggleDark={onToggleDark}
+      showBranding={showBranding}
+    >
+      <section className="mx-auto max-w-4xl px-5 pb-16 pt-10 md:px-8 md:pt-14" data-testid="template-rsvp">
+        {/* Formal Invitation Card */}
+        <div
+          className="relative overflow-hidden rounded-3xl border p-7 sm:p-10"
+          style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+        >
+          <span className="site-pill">
+            <LiveDot color="var(--site-accent)" />
+            {text(data, ['tagline', 'eyebrow'], 'بطاقة دعوة رسمية وتأكيد حضور')}
+          </span>
+          <h1 className="mt-4 font-serif text-3xl font-bold leading-snug sm:text-5xl">
+            {text(data, ['headline', 'title', 'heroTitle'], siteName)}
+          </h1>
+          <p className="mt-4 max-w-2xl text-base leading-8" style={{ color: 'var(--site-muted)' }}>
+            {text(
+              data,
+              ['description', 'intro', 'about'],
+              'نتشرف بدعوتكم لحضور فعاليتنا الخاصة. يرجى تأكيد الحضور عبر النموذج أدناه لإصدار بطاقة الدخول.'
+            )}
+          </p>
+
+          <div className="mt-7 grid gap-4 sm:grid-cols-2">
+            <div
+              className="flex items-center gap-3.5 rounded-2xl border p-4"
+              style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)' }}
+            >
+              <span
+                className="grid size-11 shrink-0 place-items-center rounded-xl text-white"
+                style={{ background: 'var(--site-accent)' }}
+              >
+                <Clock3 size={20} />
+              </span>
+              <div>
+                <p className="text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                  تاريخ وتوقيت الفعالية
+                </p>
+                <p className="mt-0.5 text-sm font-bold">{eventDate}</p>
+              </div>
+            </div>
+            <div
+              className="flex items-center gap-3.5 rounded-2xl border p-4"
+              style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)' }}
+            >
+              <span
+                className="grid size-11 shrink-0 place-items-center rounded-xl text-white"
+                style={{ background: 'var(--site-accent)' }}
+              >
+                <MapPin size={20} />
+              </span>
+              <div>
+                <p className="text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                  مقر إقامة الفعالية
+                </p>
+                <p className="mt-0.5 text-sm font-bold">{eventLocation}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Event Schedule / Agenda */}
+        {agenda.length > 0 && (
+          <div className="mt-8">
+            <SectionHeading eyebrow="برنامج الفعالية" title="جدول الفقرات والمحاور" />
+            <div className="space-y-3">
+              {agenda.map((raw, idx) => {
+                const row = asObject(raw);
+                return (
+                  <div
+                    key={idx}
+                    className="flex flex-col justify-between gap-3 rounded-2xl border p-5 sm:flex-row sm:items-center"
+                    style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+                    data-testid={`card-rsvp-agenda-${idx}`}
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <span
+                        className="grid size-9 shrink-0 place-items-center rounded-xl font-mono text-xs font-extrabold tabular-nums"
+                        style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}
+                      >
+                        0{idx + 1}
+                      </span>
+                      <div>
+                        <h3 className="font-bold">{text(row, ['name', 'title'], 'فقرة')}</h3>
+                        {text(row, ['description', 'details'], '') && (
+                          <p className="mt-1 text-xs leading-6" style={{ color: 'var(--site-muted)' }}>
+                            {text(row, ['description', 'details'], '')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {text(row, ['price', 'duration', 'category'], '') && (
+                      <span
+                        className="shrink-0 rounded-xl px-3.5 py-1.5 font-mono text-xs font-extrabold"
+                        style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}
+                      >
+                        {text(row, ['price', 'duration', 'category'], '')}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* RSVP Registration Form */}
+        <div
+          className="mt-8 rounded-3xl border p-6 sm:p-8"
+          style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+        >
+          {confirmed ? (
+            <div className="text-center py-4" data-testid="rsvp-confirmed-card">
+              <div
+                className="mx-auto grid size-16 place-items-center rounded-2xl text-white shadow-md"
+                style={{ background: 'var(--site-accent)' }}
+              >
+                <BadgeCheck size={32} />
+              </div>
+              <h2 className="mt-4 font-serif text-2xl font-bold">
+                {attending === 'yes' ? `أهلاً بك ${guestName} — تم تأكيد حضورك!` : 'شكراً لإبلاغنا، تم تسجيل اعتذارك'}
+              </h2>
+              <p className="mt-2 text-sm" style={{ color: 'var(--site-muted)' }}>
+                {attending === 'yes'
+                  ? `عدد المقاعد المحجوزة باسمك: ${companions}`
+                  : 'نتطلع للقائك في المناسبات القادمة بإذن الله.'}
+              </p>
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                {whatsapp && (
+                  <a
+                    href={rsvpWhatsappHref()}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="site-btn-shine inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold text-white"
+                    style={{ background: 'var(--site-accent)' }}
+                  >
+                    <MessageCircle size={17} /> إرسال التأكيد عبر واتساب
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setConfirmed(false)}
+                  className="rounded-xl border px-5 py-3 text-sm font-bold"
+                  style={{ borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+                >
+                  تعديل البيانات
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!guestName.trim()) return;
+                setConfirmed(true);
+              }}
+              className="space-y-4"
+            >
+              <h2 className="font-serif text-2xl font-bold">نموذج تأكيد الحضور (RSVP)</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setAttending('yes')}
+                  className="rounded-xl border py-3 text-sm font-bold transition-all"
+                  style={
+                    attending === 'yes'
+                      ? { background: 'var(--site-accent)', borderColor: 'var(--site-accent)', color: '#FFFFFF' }
+                      : { background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }
+                  }
+                  data-testid="button-rsvp-yes"
+                >
+                  ✓ أؤكد حضوري للفعالية
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttending('no')}
+                  className="rounded-xl border py-3 text-sm font-bold transition-all"
+                  style={
+                    attending === 'no'
+                      ? { background: '#0B132B', borderColor: '#0B132B', color: '#FFFFFF' }
+                      : { background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }
+                  }
+                  data-testid="button-rsvp-no"
+                >
+                  أعتذر عن الحضور
+                </button>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold">الاسم الكامل للضيف *</label>
+                  <input
+                    type="text"
+                    required
+                    value={guestName}
+                    onChange={(e) => setGuestName(e.target.value)}
+                    placeholder="اكتب اسمك الثلاثي لتأكيد الدعوة"
+                    className="mt-1.5 h-11 w-full rounded-xl border px-3.5 text-sm font-medium outline-none"
+                    style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+                    data-testid="input-rsvp-name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold">عدد الحضور</label>
+                  <select
+                    value={companions}
+                    onChange={(e) => setCompanions(e.target.value)}
+                    className="mt-1.5 h-11 w-full rounded-xl border px-3 text-sm font-bold outline-none"
+                    style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+                    data-testid="select-rsvp-companions"
+                  >
+                    <option value="1">شخص واحد (1)</option>
+                    <option value="2">شخصان (2)</option>
+                    <option value="3">3 أشخاص</option>
+                    <option value="4">4 أشخاص</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold">رقم الجوال (اختياري)</label>
+                <input
+                  type="tel"
+                  dir="ltr"
+                  value={guestPhone}
+                  onChange={(e) => setGuestPhone(e.target.value)}
+                  placeholder="9665XXXXXXXX"
+                  className="mt-1.5 h-11 w-full rounded-xl border px-3.5 text-left font-mono text-sm font-medium outline-none"
+                  style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="site-btn-shine inline-flex h-13 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-white shadow-md"
+                style={{ background: 'var(--site-accent)' }}
+                data-testid="button-rsvp-submit"
+              >
+                <span>{text(data, ['ctaLabel'], 'إرسال تأكيد الحضور')}</span>
+                <ArrowLeft size={18} />
+              </button>
+            </form>
+          )}
+        </div>
+      </section>
+      <ContactSection contact={extras.contact} social={extras.social} />
+      <FaqSection faq={extras.faq} />
+    </SiteShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// INVOICE — Dedicated Service Packages & Interactive Quote Calculator template
+// ---------------------------------------------------------------------------
+function InvoiceTemplate({ data, siteName, dark, onToggleDark, showBranding }: TemplateProps) {
+  const rawPackages = items(data, ['services', 'items', 'offerings']);
+  const extras = useSiteExtras(data);
+  const defaultPackages: Json[] = [
+    {
+      name: 'الباقة الأساسية للانطلاق',
+      price: '1,500 ر.س',
+      duration: 'دفعة واحدة',
+      description: 'مناسبة للمشاريع الناشئة وتشمل التأسيس الأساسي والدعم الفني.',
+    },
+    {
+      name: 'باقة الأعمال المتقدمة',
+      price: '3,200 ر.س',
+      duration: 'الأكثر طلباً',
+      description: 'تشمل جميع المميزات الاحترافية والتقارير الدورية وإدارة الحساب.',
+    },
+  ];
+  const packages: Json[] = (rawPackages.length > 0 ? rawPackages : defaultPackages) as Json[];
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([0]);
+  const [clientName, setClientName] = useState('');
+
+  const togglePackage = (idx: number) => {
+    setSelectedIndices((prev) =>
+      prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+    );
+  };
+
+  const parsePriceNumber = (val: unknown): number => {
+    if (typeof val === 'number') return val;
+    if (typeof val !== 'string') return 0;
+    const cleaned = val.replace(/,/g, '').match(/\d+(?:\.\d+)?/);
+    return cleaned ? Number(cleaned[0]) : 0;
+  };
+
+  const totalEstimated = selectedIndices.reduce((sum, idx) => {
+    const pkg = asObject(packages[idx]);
+    return sum + parsePriceNumber(pkg.price);
+  }, 0);
+
+  const whatsapp =
+    typeof extras.contact.whatsapp === 'string' && extras.contact.whatsapp
+      ? extras.contact.whatsapp
+      : typeof extras.contact.phone === 'string'
+      ? extras.contact.phone
+      : '';
+
+  const quoteHref = () => {
+    const chosenNames = selectedIndices
+      .map((idx) => text(asObject(packages[idx]), ['name', 'title'], `باقة ${idx + 1}`))
+      .join(' + ');
+    const msg = `طلب عرض سعر من ${siteName}\n${clientName ? `العميل: ${clientName}\n` : ''}الباقات المختارة: ${chosenNames || 'استفسار عام'}${totalEstimated > 0 ? `\nالإجمالي التقديري: ${totalEstimated.toLocaleString('ar-SA')} ر.س` : ''}`;
+    return whatsappUrl(whatsapp, msg);
+  };
+
+  return (
+    <SiteShell
+      siteName={siteName}
+      logo={extras.logo}
+      contact={extras.contact}
+      social={extras.social}
+      ctaLabel={text(data, ['ctaLabel'], 'طلب عرض السعر')}
+      dark={dark}
+      onToggleDark={onToggleDark}
+      showBranding={showBranding}
+    >
+      <section className="mx-auto max-w-5xl px-5 pb-16 pt-10 md:px-8 md:pt-14" data-testid="template-invoice">
+        <div className="text-center max-w-3xl mx-auto">
+          <span className="site-pill">
+            <LiveDot color="var(--site-accent)" />
+            {text(data, ['tagline', 'eyebrow'], 'باقات الخدمات وحاسبة عروض الأسعار')}
+          </span>
+          <h1 className="mt-4 font-serif text-3xl font-bold leading-snug sm:text-5xl">
+            {text(data, ['headline', 'title', 'heroTitle'], siteName)}
+          </h1>
+          <p className="mt-3 text-base leading-7" style={{ color: 'var(--site-muted)' }}>
+            {text(
+              data,
+              ['description', 'intro', 'about'],
+              'حدد الباقة أو البنود المناسبة لاحتياجك لاحتساب التكلفة التقديرية وطلب عرض سعر رسمي مباشرة.'
+            )}
+          </p>
+        </div>
+
+        {/* Selectable Packages Grid */}
+        <div className="mt-10 grid gap-5 md:grid-cols-2">
+          {packages.map((raw, idx) => {
+            const pkg = asObject(raw);
+            const isSelected = selectedIndices.includes(idx);
+            const period = text(pkg, ['duration', 'category'], '');
+            return (
+              <div
+                key={idx}
+                onClick={() => togglePackage(idx)}
+                className="cursor-pointer rounded-3xl border-2 p-6 transition-all"
+                style={
+                  isSelected
+                    ? {
+                        background: 'var(--site-card)',
+                        borderColor: 'var(--site-accent)',
+                      }
+                    : {
+                        background: 'var(--site-card)',
+                        borderColor: 'var(--site-border)',
+                      }
+                }
+                data-testid={`card-invoice-pkg-${idx}`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    {period && (
+                      <span
+                        className="inline-block rounded-lg px-2.5 py-1 text-xs font-bold"
+                        style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}
+                      >
+                        {period}
+                      </span>
+                    )}
+                    <h3 className="mt-2 font-serif text-xl font-bold">
+                      {text(pkg, ['name', 'title'], 'باقة خدمة')}
+                    </h3>
+                  </div>
+                  <span
+                    className="font-mono text-xl font-extrabold tabular-nums"
+                    style={{ color: 'var(--site-accent)' }}
+                  >
+                    {money(pkg.price)}
+                  </span>
+                </div>
+
+                {text(pkg, ['description', 'details'], '') && (
+                  <p className="mt-3 text-sm leading-7" style={{ color: 'var(--site-muted)' }}>
+                    {text(pkg, ['description', 'details'], '')}
+                  </p>
+                )}
+
+                <div className="mt-5 flex items-center justify-between border-t pt-4" style={{ borderColor: 'var(--site-line)' }}>
+                  <span className="text-xs font-bold" style={{ color: isSelected ? 'var(--site-accent)' : 'var(--site-muted)' }}>
+                    {isSelected ? '✓ مضمّنة في عرض السعر' : 'اضغط لإضافتها لعرض السعر'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePackage(idx);
+                    }}
+                    className="rounded-xl px-4 py-2 text-xs font-bold transition-all"
+                    style={
+                      isSelected
+                        ? { background: 'var(--site-accent)', color: '#FFFFFF' }
+                        : { background: 'var(--site-soft)', color: 'var(--site-ink)' }
+                    }
+                    data-testid={`button-select-pkg-${idx}`}
+                  >
+                    {isSelected ? 'تم الاختيار ✓' : 'اختيار الباقة'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Interactive Quote Calculator Summary Box */}
+        <div
+          className="mt-8 rounded-3xl border p-6 sm:p-8"
+          style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)' }}
+        >
+          <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
+            <div>
+              <span className="text-xs font-bold" style={{ color: 'var(--site-accent)' }}>
+                ملخص عرض السعر التفاعلي
+              </span>
+              <h2 className="mt-1 font-serif text-2xl font-bold">
+                عدد الباقات المحددة: {selectedIndices.length}
+              </h2>
+              {totalEstimated > 0 && (
+                <p className="mt-1 font-mono text-xl font-extrabold tabular-nums" style={{ color: 'var(--site-accent)' }}>
+                  الإجمالي التقديري: {totalEstimated.toLocaleString('ar-SA')} ر.س
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3 sm:w-80">
+              <input
+                type="text"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                placeholder="اسمك أو اسم الجهة (اختياري)"
+                className="h-11 rounded-xl border px-3.5 text-sm font-medium outline-none"
+                style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+                data-testid="input-invoice-client"
+              />
+              <a
+                href={quoteHref()}
+                target={whatsapp ? '_blank' : undefined}
+                rel="noreferrer"
+                className="site-btn-shine inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white shadow-md"
+                style={{ background: 'var(--site-accent)' }}
+                data-testid="link-invoice-submit"
+              >
+                <span>{text(data, ['ctaLabel'], 'اعتماد الباقة وطلب عرض السعر')}</span>
+                <ArrowLeft size={17} />
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+      <TestimonialsSection testimonials={extras.testimonials} />
+      <ContactSection contact={extras.contact} social={extras.social} />
+      <FaqSection faq={extras.faq} />
+    </SiteShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// VCARD — Dedicated Digital Business Card & Bio Links template
+// ---------------------------------------------------------------------------
+function VcardTemplate({ data, siteName, dark, onToggleDark, showBranding }: TemplateProps) {
+  const links = items(data, ['items', 'services', 'projects']);
+  const extras = useSiteExtras(data);
+  const phone = typeof extras.contact.phone === 'string' ? extras.contact.phone : '';
+  const whatsapp = typeof extras.contact.whatsapp === 'string' ? extras.contact.whatsapp : phone;
+  const email = typeof extras.contact.email === 'string' ? extras.contact.email : '';
+  const address = typeof extras.contact.address === 'string' ? extras.contact.address : '';
+
+  const resolveLinkHref = (rawUrl: string, title: string) => {
+    const clean = rawUrl.trim();
+    if (/^https?:\/\//i.test(clean)) return clean;
+    if (/^(?:www\.)?[a-z0-9-]+\.[a-z]{2,}/i.test(clean)) return `https://${clean}`;
+    return whatsapp ? whatsappUrl(whatsapp, `مرحباً، أود الاستفسار عن: ${title}`) : '#reach-us';
+  };
+
+  return (
+    <div
+      dir="rtl"
+      className="site-public-shell min-h-[100dvh] px-4 py-10 transition-colors duration-300"
+      style={{ background: 'var(--site-bg)', color: 'var(--site-ink)' }}
+      data-testid="template-vcard"
+    >
+      <div className="mx-auto max-w-lg">
+        {/* Top bar */}
+        <div className="mb-6 flex items-center justify-between">
+          <span className="site-pill">
+            <LiveDot color="var(--site-accent)" />
+            {text(data, ['tagline', 'eyebrow'], 'بطاقة تواصل رقمية')}
+          </span>
+          <ThemeToggle dark={dark} onToggle={onToggleDark} />
+        </div>
+
+        {/* Main Profile Bio Card */}
+        <div
+          className="overflow-hidden rounded-3xl border p-7 text-center shadow-lg"
+          style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+        >
+          {extras.logo ? (
+            <img
+              src={extras.logo}
+              alt={siteName}
+              className="mx-auto size-24 rounded-full border-4 object-cover shadow-md"
+              style={{ borderColor: 'var(--site-accent)' }}
+            />
+          ) : (
+            <div
+              className="mx-auto grid size-24 place-items-center rounded-full font-serif text-3xl font-bold text-white shadow-md"
+              style={{ background: 'var(--site-accent)' }}
+            >
+              {siteName.slice(0, 1)}
+            </div>
+          )}
+
+          <h1 className="mt-4 font-serif text-2xl font-bold sm:text-3xl">
+            {text(data, ['headline', 'title', 'heroTitle'], siteName)}
+          </h1>
+          <p className="mt-2 text-sm leading-7" style={{ color: 'var(--site-muted)' }}>
+            {text(data, ['description', 'intro', 'about'], 'جميع قنوات التواصل الرسمي والروابط المباشرة في مكان واحد.')}
+          </p>
+
+          {/* Quick Contact Buttons */}
+          <div className="mt-6 flex flex-wrap justify-center gap-2.5">
+            {whatsapp && (
+              <a
+                href={whatsappUrl(whatsapp)}
+                target="_blank"
+                rel="noreferrer"
+                className="site-btn-shine inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-white"
+                style={{ background: 'var(--site-accent)' }}
+                data-testid="link-vcard-whatsapp"
+              >
+                <MessageCircle size={15} /> واتساب مباشر
+              </a>
+            )}
+            {phone && (
+              <a
+                href={`tel:${digitsOnly(phone)}`}
+                className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold"
+                style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)' }}
+                data-testid="link-vcard-phone"
+              >
+                <Phone size={15} style={{ color: 'var(--site-accent)' }} /> اتصال
+              </a>
+            )}
+            {email && (
+              <a
+                href={`mailto:${email}`}
+                className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold"
+                style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)' }}
+              >
+                <Mail size={15} style={{ color: 'var(--site-accent)' }} /> بريد
+              </a>
+            )}
+          </div>
+
+          {address && (
+            <p className="mt-4 flex items-center justify-center gap-1.5 text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+              <MapPin size={14} style={{ color: 'var(--site-accent)' }} /> {address}
+            </p>
+          )}
+        </div>
+
+        {/* Links Stack */}
+        <div className="mt-5 space-y-3">
+          {links.length === 0 ? (
+            <EmptyCollection label="لم تتم إضافة روابط بعد." />
+          ) : (
+            links.map((raw, idx) => {
+              const item = asObject(raw);
+              const linkTitle = text(item, ['name', 'title'], `رابط ${idx + 1}`);
+              const linkSub = text(item, ['description', 'details'], '');
+              const rawTarget = text(item, ['price', 'category'], '');
+              const href = resolveLinkHref(rawTarget, linkTitle);
+              return (
+                <a
+                  key={idx}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="site-card-lift flex items-center justify-between gap-4 rounded-2xl border p-4 transition-all"
+                  style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+                  data-testid={`link-vcard-item-${idx}`}
+                >
+                  <div className="min-w-0 text-right">
+                    <p className="truncate font-bold">{linkTitle}</p>
+                    {linkSub && (
+                      <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--site-muted)' }}>
+                        {linkSub}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className="grid size-9 shrink-0 place-items-center rounded-xl"
+                    style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}
+                  >
+                    <ArrowUpRight size={17} />
+                  </span>
+                </a>
+              );
+            })
+          )}
+        </div>
+
+        {showBranding && (
+          <div className="mt-8 text-center">
+            <a
+              href={(import.meta.env.VITE_FRONTEND_URL as string | undefined) || 'https://orxai.pages.dev'}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold opacity-60 transition-opacity hover:opacity-100"
+              style={{ color: 'var(--site-muted)' }}
+            >
+              <OrxaiMark monochrome className="h-3 w-auto" /> تم الإنشاء بواسطة orxai
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PublicWebsite() {
   const { username = '' } = useParams<{ username: string }>();
   const query = useGetPublicWebsite(username, { query: { queryKey: getGetPublicWebsiteQueryKey(username), enabled: Boolean(username) } });
@@ -1161,6 +2176,23 @@ export default function PublicWebsite() {
   const modern = templateStyle === 'modern';
   const props: TemplateProps = { data, siteName: website.siteName, dark, onToggleDark: () => setDarkOverride(!dark), showBranding: website.showBranding !== false };
 
+  // Dedicated single-purpose templates always render their bespoke interface
+  if (template.includes('survey') || template.includes('استبيان')) {
+    return <div className="site-template-root site-template-survey" style={paletteStyle}><SurveyTemplate {...props} /></div>;
+  }
+  if (template.includes('rsvp') || template.includes('دعوة')) {
+    return <div className="site-template-root site-template-rsvp" style={paletteStyle}><RsvpTemplate {...props} /></div>;
+  }
+  if (template.includes('invoice') || template.includes('باقات')) {
+    return <div className="site-template-root site-template-invoice" style={paletteStyle}><InvoiceTemplate {...props} /></div>;
+  }
+  if (template.includes('vcard') || template.includes('بطاقة')) {
+    return <div className="site-template-root site-template-vcard" style={paletteStyle}><VcardTemplate {...props} /></div>;
+  }
+  if (template.includes('booking') || template.includes('حجز') || template.includes('موعد')) {
+    return <div className="site-template-root site-template-booking" style={paletteStyle}><BookingTemplate {...props} /></div>;
+  }
+
   if (templateStyle === 'cinematic') {
     return <div className={`site-template-root site-template-${template} site-template-cinematic`} style={paletteStyle}><CinematicTemplate {...props} templateId={template} /></div>;
   }
@@ -1171,7 +2203,6 @@ export default function PublicWebsite() {
 
   let Body: (p: TemplateProps) => ReactElement;
   if (template.includes('restaurant') || template.includes('مطعم')) Body = modern ? RestaurantModern : RestaurantClassic;
-  else if (template.includes('booking') || template.includes('حجز') || template.includes('موعد')) Body = BookingTemplate;
   else if (template.includes('service') || template.includes('خدمات')) Body = modern ? ServicesModern : ServicesClassic;
   else if (template.includes('portfolio') || template.includes('أعمال')) Body = modern ? PortfolioModern : PortfolioClassic;
   else Body = modern ? StoreModern : StoreClassic;

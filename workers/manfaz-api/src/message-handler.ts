@@ -25,9 +25,9 @@ import {
   verifyLoginChallengeByCode,
 } from "./supabase";
 import type { Env, IncomingMessage, PendingImage, UserRow, WebsiteRow } from "./types";
-import { filterSupportedStructureFields, separateDashboardOnlyChanges, supportsCollectionImages, templateCollection } from "./site-schema";
+import { filterSupportedStructureFields, separateDashboardOnlyChanges, supportsCollectionImages, templateCollection, VALID_TEMPLATES } from "./site-schema";
 
-const templates = new Set(["store", "restaurant", "services", "portfolio", "booking"]);
+const templates = new Set<string>(VALID_TEMPLATES);
 
 // Words that clearly mean "remove/delete" — used only as a safety guard against
 // accidental data loss when the model forgets to echo back an existing list.
@@ -337,7 +337,7 @@ function normalizeTemplateFields(
   const normalized = { ...structure };
   if (normalized.services === undefined) {
     const services = normalized.offerings ?? normalized.experiences;
-    if (services !== undefined && (templateId === "services" || templateId === "booking")) normalized.services = services;
+    if (services !== undefined && (templateId === "services" || templateId === "booking" || templateId === "invoice")) normalized.services = services;
   }
   if (normalized.projects === undefined) {
     const projects = normalized.experiences;
@@ -345,7 +345,7 @@ function normalizeTemplateFields(
   }
   if (normalized.items === undefined) {
     const items = normalized.menu ?? normalized.menuItems;
-    if (items !== undefined && (templateId === "store" || templateId === "restaurant")) normalized.items = items;
+    if (items !== undefined && (templateId === "store" || templateId === "restaurant" || templateId === "survey" || templateId === "vcard" || templateId === "rsvp")) normalized.items = items;
   }
   return normalized;
 }
@@ -357,6 +357,10 @@ function templateArabicName(templateId: string): string {
     case "services": return "الخدمات";
     case "portfolio": return "البورتفوليو";
     case "booking": return "الحجوزات";
+    case "survey": return "الاستبيان";
+    case "vcard": return "البطاقة الرقمية";
+    case "rsvp": return "الدعوة وتأكيد الحضور";
+    case "invoice": return "عروض الأسعار والباقات";
     default: return "الموقع";
   }
 }

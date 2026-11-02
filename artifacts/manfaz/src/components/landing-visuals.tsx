@@ -231,6 +231,24 @@ export function StudioHeroBannerArt({
           <circle cx="214" cy="34" r="5" fill="#38BDF8" />
         </g>
       )}
+      {(presetId === 'survey' || presetId === 'rsvp' || presetId === 'invoice' || presetId === 'vcard') && (
+        <g opacity="0.58">
+          <rect
+            x="144"
+            y="30"
+            width="72"
+            height="56"
+            rx="14"
+            fill="rgba(15, 23, 42, 0.48)"
+            stroke={primaryHex}
+            strokeOpacity="0.6"
+            strokeWidth="1.75"
+          />
+          <rect x="158" y="44" width="44" height="6" rx="3" fill={primaryHex} />
+          <rect x="158" y="56" width="32" height="6" rx="3" fill={secondaryHex} />
+          <rect x="158" y="68" width="22" height="6" rx="3" fill="#38BDF8" />
+        </g>
+      )}
       {/* Flowing architectural wave across bottom */}
       <path
         d="M0 96C90 74 180 112 270 86C310 74 340 82 360 90V120H0V96Z"

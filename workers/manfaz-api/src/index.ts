@@ -39,6 +39,7 @@ import {
   STYLES,
   templateCollection,
   UPLOAD_TYPES,
+  VALID_TEMPLATES,
 } from "./site-schema";
 import type { WebsiteWithOwner } from "./supabase";
 import type {
@@ -824,7 +825,7 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     const siteName = typeof body.siteName === "string" ? cleanString(body.siteName).trim() : "";
     if (!siteName || siteName.length > 80) return json({ error: "Invalid site name" }, 400);
 
-    const validTemplates = new Set(["store", "restaurant", "services", "portfolio", "booking"]);
+    const validTemplates = new Set<string>(VALID_TEMPLATES);
     const templateId = typeof body.templateId === "string" && validTemplates.has(body.templateId) ? body.templateId : "store";
     const themeColor = isHexColor(body.themeColor) ? body.themeColor : "#1D4ED8";
     const showBranding = typeof body.showBranding === "boolean" ? body.showBranding : true;
@@ -896,7 +897,7 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
       siteName = value;
     }
 
-    const validTemplates = new Set(["store", "restaurant", "services", "portfolio", "booking"]);
+    const validTemplates = new Set<string>(VALID_TEMPLATES);
     let templateId = website.template_id;
     if (body.templateId !== undefined) {
       if (typeof body.templateId !== "string" || !validTemplates.has(body.templateId)) {

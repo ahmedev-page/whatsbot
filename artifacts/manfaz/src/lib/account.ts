@@ -429,17 +429,43 @@ export interface CreateInPlatformInput {
   projectsCount?: string;
 }
 
+export function getCollectionKeyForTemplate(templateId: string): 'items' | 'services' | 'projects' {
+  if (templateId === 'services' || templateId === 'booking' || templateId === 'invoice') {
+    return 'services';
+  }
+  if (templateId === 'portfolio') {
+    return 'projects';
+  }
+  return 'items';
+}
+
+export function getDefaultCtaForTemplate(templateId: string): string {
+  switch (templateId) {
+    case 'booking':
+      return 'احجز موعدك الآن';
+    case 'restaurant':
+      return 'شاهد المنيو واطلب';
+    case 'portfolio':
+      return 'تواصل معي';
+    case 'survey':
+      return 'إرسال التقييم الآن';
+    case 'rsvp':
+      return 'تأكيد الحضور';
+    case 'invoice':
+      return 'اعتماد الباقة وطلب عرض السعر';
+    case 'vcard':
+      return 'تواصل مباشر';
+    default:
+      return 'تواصل واطلب الآن';
+  }
+}
+
 export async function createWebsiteInPlatform(input: CreateInPlatformInput): Promise<SiteDocument> {
   const slug = slugifyUsername(input.username?.trim() || input.siteName);
 
   const templateStyle = input.templateStyle || 'modern';
   const themeColor = input.themeColor || '#1D4ED8';
-  const collectionKey =
-    input.templateId === 'services' || input.templateId === 'booking'
-      ? 'services'
-      : input.templateId === 'portfolio'
-      ? 'projects'
-      : 'items';
+  const collectionKey = getCollectionKeyForTemplate(input.templateId);
 
   const activeWhatsapp =
     input.whatsapp?.trim() ||
@@ -488,14 +514,7 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
   if (input.socialLinks?.snapchat?.trim()) socialLinks.snapchat = input.socialLinks.snapchat.trim();
   if (input.socialLinks?.facebook?.trim()) socialLinks.facebook = input.socialLinks.facebook.trim();
 
-  const defaultCta =
-    input.templateId === 'booking'
-      ? 'احجز الآن'
-      : input.templateId === 'restaurant'
-      ? 'شاهد المنيو واطلب'
-      : input.templateId === 'portfolio'
-      ? 'تواصل معي'
-      : 'تواصل واطلب الآن';
+  const defaultCta = getDefaultCtaForTemplate(input.templateId);
 
   const jsonStructure: Record<string, unknown> = {
     tagline: input.tagline?.trim() || input.description?.trim() || '',
@@ -883,12 +902,7 @@ export function useSaveSite() {
         // Save locally when backend endpoint is unavailable
         if (!current) throw err;
         const nextTemplate = input.templateId || current.templateId;
-        const nextCollectionKey =
-          nextTemplate === 'services' || nextTemplate === 'booking'
-            ? 'services'
-            : nextTemplate === 'portfolio'
-            ? 'projects'
-            : 'items';
+        const nextCollectionKey = getCollectionKeyForTemplate(nextTemplate);
         const nextUsername = input.username?.trim()
           ? slugifyUsername(input.username)
           : current.username;

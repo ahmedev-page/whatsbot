@@ -36,12 +36,10 @@ import { useAccount, type SiteStyle } from '@/lib/account';
 import {
   BOT_PILLARS,
   EXECUTIVE_THEMES,
-  PLATFORM_SERVICES,
+  SERVICE_GROUPS,
   STUDIO_PRESETS,
   STYLE_MODES,
-  filterServicesByCategory,
   resolveStudioPreviewState,
-  type ServiceCategory,
   type ServiceVisualKind,
 } from '@/lib/landing-data';
 
@@ -65,20 +63,26 @@ const PRESET_ICONS: Record<string, LucideIcon> = {
   restaurant: UtensilsCrossed,
   booking: CalendarCheck,
   services: Briefcase,
+  survey: ClipboardList,
+  rsvp: CalendarDays,
+  invoice: Briefcase,
+  vcard: User,
 };
+
+const HERO_PRESET_IDS = ['store', 'restaurant', 'survey', 'booking'] as const;
 
 const FAQ_LIST = [
   {
-    q: 'أين يتم بناء المواقع والخدمات الـ 12؟',
-    a: 'يتم بناء وتصميم وتخصيص جميع المواقع والخدمات الـ 12 بالكامل من داخل استوديو المنصة الرسمي عبر المتصفح بأدوات مرئية متكاملة.',
+    q: 'هل لكل خدمة قالب مستقل ومخصص لطبيعتها؟',
+    a: 'نعم، كل خدمة تمتلك قالبها التفاعلي المستقل: قالب مخصص للاستبيانات والتقييم، قالب للحجوزات، قالب لدعوات الفعاليات (RSVP)، قالب لعروض الأسعار، وقوالب مخصصة للمتاجر والمطاعم والشركات والبطاقات الرقمية.',
   },
   {
     q: 'ما هو دور بوت الواتساب في المنظومة؟',
-    a: 'يعمل البوت كمساعد تنفيذي سريع لثلاث مهام محددة فقط: التحقق الأمني عند الدخول (OTP)، التعديلات النصية السريعة على الأسعار والعناوين، وإرسال تقارير الزوار والمبيعات.',
+    a: 'يعمل البوت كمساعد تنفيذي سريع لثلاث مهام محددة: التحقق الأمني لمرة واحدة لكل جهاز، التعديلات النصية السريعة، وإرسال إحصائيات الزوار الفعلية.',
   },
   {
-    q: 'هل يمكن الدخول بدون التحقق عبر البوت؟',
-    a: 'لا، حفاظاً على أمان منشأتك يُشترط تأكيد ملكية رقم الجوال عبر إرسال كود التحقق لبوت واتساب قبل فتح لوحة التحكم.',
+    q: 'هل أحتاج لإعادة التحقق في كل مرة أدخل فيها؟',
+    a: 'لا، يتم توثيق جهازك عند التحقق لأول مرة، وبعدها تدخل مباشرة من نفس الجهاز دون تكرار الكود.',
   },
 ];
 
@@ -99,8 +103,11 @@ export default function Landing() {
   const [accentHex, setAccentHex] = useState<string>('#2563EB');
   const [customTitle, setCustomTitle] = useState<string>('');
 
-  // Services Filter State
-  const [categoryFilter, setCategoryFilter] = useState<ServiceCategory>('all');
+  // Consolidated Service Groups Active Sub-Item State
+  const [selectedSubByGroup, setSelectedSubByGroup] = useState<Record<string, string>>({
+    websites: 'store',
+    tools: 'survey',
+  });
 
   // Bot Pillar State
   const [activeBotId, setActiveBotId] = useState<'auth' | 'edit' | 'analytics'>('auth');
@@ -113,7 +120,6 @@ export default function Landing() {
   const activeTheme = studioState.theme;
   const displayTitle = studioState.displayTitle;
 
-  const visibleServices = filterServicesByCategory(categoryFilter);
   const activeBot = BOT_PILLARS.find((b) => b.id === activeBotId) || BOT_PILLARS[0];
 
   return (
@@ -154,7 +160,7 @@ export default function Landing() {
               style={{ color: '#334155' }}
               className="relative py-1 whitespace-nowrap shrink-0 transition-colors duration-200 hover:text-blue-600"
             >
-              الخدمات الـ 12
+              أقسام الخدمات والقوالب
             </a>
             <a
               href="#whatsapp-assistant"
@@ -238,7 +244,7 @@ export default function Landing() {
                   style={{ color: '#0F172A' }}
                   className="rounded-xl px-4 py-3 transition-colors hover:bg-slate-100"
                 >
-                  الخدمات الـ 12
+                  أقسام الخدمات والقوالب
                 </a>
                 <a
                   href="#whatsapp-assistant"
@@ -317,8 +323,8 @@ export default function Landing() {
                     style={{ color: '#CBD5E1' }}
                     className="mt-6 max-w-2xl text-lg leading-[1.85] text-slate-300 sm:text-xl"
                   >
-                    صمّم وأطلق متجرك، موقعك الرسمي، وخدماتك الـ 12 مباشرة من استوديو المنصة،
-                    مع مساعد واتساب الموثق للتحقق الأمني والتعديلات السريعة.
+                    منظومة مقسمة بوضوح إلى قسمين رئيسيين: مواقع وواجهات رقمية، وأدوات تفاعلية
+                    (استبيان، حجوزات، دعوات، عروض أسعار) — لكل خدمة قالبها المستقل ومرتبطة بقاعدة البيانات.
                   </p>
                 </div>
 
@@ -363,15 +369,15 @@ export default function Landing() {
                     }}
                     className="mt-10 flex flex-wrap items-center gap-y-2 border-t pt-6 text-sm font-semibold"
                   >
-                    <span style={{ color: '#E2E8F0' }}>إنشاء متكامل داخل المنصة</span>
+                    <span style={{ color: '#E2E8F0' }}>قالب مستقل لكل خدمة</span>
                     <span className="mx-3" style={{ color: '#38BDF8' }}>
                       ·
                     </span>
-                    <span style={{ color: '#E2E8F0' }}>توثيق أمني إلزامي عبر البوت</span>
+                    <span style={{ color: '#E2E8F0' }}>توثيق جهاز لمرة واحدة</span>
                     <span className="mx-3" style={{ color: '#34D399' }}>
                       ·
                     </span>
-                    <span style={{ color: '#E2E8F0' }}>12 خدمة سحابية جاهزة</span>
+                    <span style={{ color: '#E2E8F0' }}>قسمان منظمان بدون حشو</span>
                   </div>
                 </div>
               </motion.div>
@@ -436,7 +442,8 @@ export default function Landing() {
                       }}
                       className="my-5 grid grid-cols-2 gap-2 rounded-2xl border p-1.5"
                     >
-                      {Object.values(STUDIO_PRESETS).map((preset) => {
+                      {HERO_PRESET_IDS.map((id) => {
+                        const preset = STUDIO_PRESETS[id];
                         const Icon = PRESET_ICONS[preset.id] || Store;
                         const isSelected = presetKey === preset.id;
                         return (
@@ -1159,7 +1166,7 @@ export default function Landing() {
         <SectionCurveDivider fromColor="#EEF2F6" toColor="#FFFFFF" />
 
         {/* =====================================================================
-            SECTION 3: THE 12 SERVICES BENTO SUITE (#services-suite)
+            SECTION 3: CONSOLIDATED 2-GROUP SERVICES ARCHITECTURE (#services-suite)
             ===================================================================== */}
         <section
           id="services-suite"
@@ -1169,181 +1176,241 @@ export default function Landing() {
             borderTopColor: '#E2E8F0',
             color: '#0F172A',
           }}
-          className="scroll-mt-20 border-t bg-white py-20 lg:py-28"
+          className="scroll-mt-20 border-t bg-white py-20 lg:py-24"
         >
           <div className="mx-auto max-w-[1380px] px-6 sm:px-10">
-            <div className="flex flex-col justify-between gap-8 pb-12 lg:flex-row lg:items-end">
+            <div className="flex flex-col justify-between gap-6 border-b border-slate-200 pb-10 lg:flex-row lg:items-end" style={{ borderBottomColor: '#E2E8F0' }}>
               <div>
                 <p style={{ color: '#1D4ED8' }} className="text-sm font-bold">
-                  03 / منظومة الخدمات السحابية المتكاملة
+                  03 / هيكلة الخدمات المجمّعة والقوالب المستقلة
                 </p>
                 <h2
                   style={{ color: '#0F172A' }}
-                  className="mt-2.5 font-serif text-[clamp(1.9rem,3.2vw,2.85rem)] font-extrabold leading-[1.35]"
+                  className="mt-2 font-serif text-[clamp(1.85rem,3vw,2.65rem)] font-extrabold leading-[1.35]"
                 >
-                  12 خدمة رقمية متكاملة بأشكال وتجارب مخصصة
+                  قسمان رئيسيان منظمان · ولكل خدمة قالبها المخصص
                 </h2>
               </div>
-
-              {/* Animated Segmented Category Filter */}
-              <LayoutGroup id="services-filter-tabs">
-                <div
-                  role="tablist"
-                  aria-label="تصفية الخدمات"
-                  style={{
-                    backgroundColor: '#F1F5F9',
-                    borderColor: '#CBD5E1',
-                  }}
-                  className="flex items-center gap-1.5 overflow-x-auto rounded-2xl border p-1.5 shrink-0"
-                >
-                  {[
-                    { id: 'all' as const, label: 'جميع الخدمات · 12' },
-                    { id: 'presence' as const, label: 'الواجهات · 03' },
-                    { id: 'commerce' as const, label: 'التجارة · 05' },
-                    { id: 'engagement' as const, label: 'التفاعل · 04' },
-                  ].map((tab) => {
-                    const active = categoryFilter === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        role="tab"
-                        aria-selected={active}
-                        type="button"
-                        onClick={() => setCategoryFilter(tab.id)}
-                        style={
-                          active
-                            ? {
-                                backgroundColor: '#0B132B',
-                                color: '#FFFFFF',
-                              }
-                            : {
-                                backgroundColor: 'transparent',
-                                color: '#334155',
-                              }
-                        }
-                        className="relative z-10 rounded-xl px-5 py-2.5 text-sm font-bold whitespace-nowrap shrink-0 tabular-nums transition-colors duration-200"
-                        data-testid={`button-filter-services-${tab.id}`}
-                      >
-                        {active && (
-                          <motion.span
-                            layoutId="service-filter-active-pill"
-                            transition={SMOOTH_SPRING}
-                            style={{
-                              background: 'linear-gradient(135deg, #0B132B 0%, #1D4ED8 100%)',
-                              backgroundColor: '#0B132B',
-                            }}
-                            className="absolute inset-0 -z-10 rounded-xl shadow-sm"
-                          />
-                        )}
-                        <span style={{ color: active ? '#FFFFFF' : '#334155' }}>
-                          {tab.label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </LayoutGroup>
+              <p
+                style={{ color: '#475569' }}
+                className="max-w-lg text-sm font-medium leading-relaxed sm:text-base"
+              >
+                بدلاً من تشتيتك بعشرات البطاقات المتشابهة، جمّعنا خدمات المواقع في قسم موحّد،
+                والأدوات التفاعلية (الاستبيان، الحجز، الدعوات، الباقات) في قسم مستقل بقوالب مخصصة لكل أداة.
+              </p>
             </div>
 
-            {/* Animated 12-Service Bento Grid with Custom SVG Visual Schematics */}
-            <motion.div
-              layout
-              className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3"
-            >
-              <AnimatePresence mode="popLayout">
-                {visibleServices.map((service) => {
-                  const Icon = SERVICE_ICONS[service.id] || Globe;
-                  return (
-                    <motion.article
-                      layout
-                      key={service.id}
-                      initial={{ opacity: 0, y: 18, scale: 0.96 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.94 }}
-                      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                      style={{
-                        backgroundColor: '#F8FAFC',
-                        borderColor: '#CBD5E1',
-                        color: '#0F172A',
-                      }}
-                      className="group flex flex-col justify-between rounded-3xl border p-6 transition-all duration-300 hover:-translate-y-1.5 hover:border-blue-500 hover:bg-white hover:shadow-xl sm:p-7"
-                      data-testid={`card-service-${service.id}`}
-                    >
-                      <div>
-                        {/* Top Visual Shape / Mini-UI Illustration */}
-                        <ServiceCardVisual
-                          kind={service.id}
-                          accentFrom={service.accentFrom}
-                          accentTo={service.accentTo}
-                        />
+            {/* 2 Consolidated Master Group Cards Side-by-Side */}
+            <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-2">
+              {SERVICE_GROUPS.map((group) => {
+                const activeSubId = selectedSubByGroup[group.id] || group.items[0].id;
+                const activeSub =
+                  group.items.find((it) => it.id === activeSubId) || group.items[0];
+                const ActiveIcon = SERVICE_ICONS[activeSub.visualKind] || Globe;
 
-                        {/* Index + Category + High-Contrast Solid Icon */}
-                        <div className="mt-5 flex items-center justify-between">
-                          <div
-                            style={{ color: '#475569' }}
-                            className="flex items-center gap-2 text-xs font-extrabold sm:text-sm"
-                          >
+                return (
+                  <div
+                    key={group.id}
+                    data-testid={`group-card-${group.id}`}
+                    style={{
+                      backgroundColor: '#F8FAFC',
+                      borderColor: '#CBD5E1',
+                      color: '#0F172A',
+                    }}
+                    className="flex flex-col justify-between rounded-3xl border p-6 shadow-md sm:p-8"
+                  >
+                    <div>
+                      {/* Group Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-5" style={{ borderBottomColor: '#E2E8F0' }}>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              style={{
+                                backgroundColor: '#0B132B',
+                                color: '#38BDF8',
+                              }}
+                              className="rounded-lg px-2.5 py-1 font-mono text-xs font-extrabold tabular-nums"
+                            >
+                              {group.badge}
+                            </span>
                             <span
                               style={{
                                 backgroundColor: '#EFF6FF',
                                 borderColor: '#BFDBFE',
                                 color: '#1D4ED8',
                               }}
-                              className="rounded-md border px-2.5 py-0.5 font-mono text-xs font-extrabold tabular-nums"
+                              className="rounded-lg border px-2.5 py-1 text-xs font-extrabold"
                             >
-                              {service.index}
+                              {group.items.length} قوالب مستقلة
                             </span>
-                            <span style={{ color: '#94A3B8' }}>/</span>
-                            <span style={{ color: '#475569' }}>{service.categoryLabel}</span>
+                          </div>
+                          <h3
+                            style={{ color: '#0F172A' }}
+                            className="mt-3 font-serif text-xl font-extrabold sm:text-2xl"
+                          >
+                            {group.title}
+                          </h3>
+                          <p
+                            style={{ color: '#475569' }}
+                            className="mt-1 text-xs font-medium sm:text-sm"
+                          >
+                            {group.subtitle}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Sub-Service Switcher Tabs inside Group */}
+                      <div className="mt-5">
+                        <span
+                          style={{ color: '#475569' }}
+                          className="mb-2.5 block text-xs font-extrabold"
+                        >
+                          اختر الخدمة لمعاينة قالبها المخصص:
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {group.items.map((item) => {
+                            const SubIcon = SERVICE_ICONS[item.visualKind] || Globe;
+                            const isSelected = activeSub.id === item.id;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedSubByGroup((prev) => ({
+                                    ...prev,
+                                    [group.id]: item.id,
+                                  }))
+                                }
+                                data-testid={`button-subservice-${item.id}`}
+                                style={
+                                  isSelected
+                                    ? {
+                                        backgroundColor: '#0B132B',
+                                        borderColor: '#0B132B',
+                                        color: '#FFFFFF',
+                                      }
+                                    : {
+                                        backgroundColor: '#FFFFFF',
+                                        borderColor: '#CBD5E1',
+                                        color: '#0F172A',
+                                      }
+                                }
+                                className="inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-extrabold transition-all hover:border-blue-500 sm:text-sm"
+                              >
+                                <SubIcon
+                                  size={15}
+                                  style={{ color: isSelected ? '#38BDF8' : item.accentFrom }}
+                                />
+                                <span>{item.shortLabel}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Active Sub-Service Dedicated Template Preview */}
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={activeSub.id}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -6 }}
+                          transition={{ duration: 0.22 }}
+                          style={{
+                            backgroundColor: '#FFFFFF',
+                            borderColor: '#CBD5E1',
+                            color: '#0F172A',
+                          }}
+                          className="mt-5 overflow-hidden rounded-2xl border p-5 shadow-xs"
+                          data-testid={`card-service-${activeSub.id}`}
+                        >
+                          <ServiceCardVisual
+                            kind={activeSub.visualKind}
+                            accentFrom={activeSub.accentFrom}
+                            accentTo={activeSub.accentTo}
+                          />
+
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                            <span
+                              style={{
+                                backgroundColor: '#EFF6FF',
+                                borderColor: '#BFDBFE',
+                                color: '#1D4ED8',
+                              }}
+                              className="rounded-lg border px-3 py-1 text-xs font-extrabold"
+                            >
+                              {activeSub.templateBadge}
+                            </span>
+
+                            <span
+                              style={{
+                                background: `linear-gradient(135deg, ${activeSub.accentFrom}, ${activeSub.accentTo})`,
+                                backgroundColor: activeSub.accentFrom,
+                                color: '#FFFFFF',
+                              }}
+                              className="grid size-9 place-items-center rounded-xl text-white shadow-xs"
+                            >
+                              <ActiveIcon size={18} style={{ color: '#FFFFFF' }} />
+                            </span>
                           </div>
 
-                          <span
-                            style={{
-                              background: `linear-gradient(135deg, ${service.accentFrom}, ${service.accentTo})`,
-                              backgroundColor: service.accentFrom,
-                              color: '#FFFFFF',
-                            }}
-                            className="grid size-11 place-items-center rounded-xl text-white shadow-md transition-transform duration-300 group-hover:scale-110"
+                          <h4
+                            style={{ color: '#0F172A' }}
+                            className="mt-3 text-lg font-extrabold sm:text-xl"
                           >
-                            <Icon size={20} style={{ color: '#FFFFFF' }} />
-                          </span>
-                        </div>
+                            {activeSub.title}
+                          </h4>
+                          <p
+                            style={{ color: '#475569' }}
+                            className="mt-1.5 text-xs font-medium leading-relaxed sm:text-sm"
+                          >
+                            {activeSub.summary}
+                          </p>
 
-                        <h3
-                          style={{ color: '#0F172A' }}
-                          className="mt-4 font-serif text-xl font-extrabold sm:text-2xl"
-                        >
-                          {service.title}
-                        </h3>
-                        <p
-                          style={{ color: '#475569' }}
-                          className="mt-2 text-sm leading-relaxed sm:text-base"
-                        >
-                          {service.summary}
-                        </p>
-                      </div>
+                          {/* 3 Concise Feature Points */}
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {activeSub.features.map((feat) => (
+                              <span
+                                key={feat}
+                                style={{
+                                  backgroundColor: '#F8FAFC',
+                                  borderColor: '#E2E8F0',
+                                  color: '#334155',
+                                }}
+                                className="rounded-lg border px-2.5 py-1 text-xs font-bold"
+                              >
+                                ✓ {feat}
+                              </span>
+                            ))}
+                          </div>
+                        </motion.div>
+                      </AnimatePresence>
+                    </div>
 
-                      <div
-                        style={{ borderTopColor: '#E2E8F0' }}
-                        className="mt-6 border-t pt-4"
+                    {/* Direct Action Footer */}
+                    <div className="mt-5 flex items-center justify-between gap-4 pt-2">
+                      <span
+                        style={{ color: '#64748B' }}
+                        className="font-mono text-xs font-bold"
                       >
-                        <Link
-                          href={`/dashboard?create=1&template=${service.templateId}`}
-                          style={{ color: '#1D4ED8' }}
-                          className="inline-flex items-center gap-2 text-sm font-extrabold transition-colors group-hover:text-blue-700"
-                        >
-                          <span>تفعيل وتخصيص الخدمة</span>
-                          <ArrowLeft
-                            size={16}
-                            className="transition-transform duration-200 group-hover:-translate-x-1"
-                          />
-                        </Link>
-                      </div>
-                    </motion.article>
-                  );
-                })}
-              </AnimatePresence>
-            </motion.div>
+                        القالب: {activeSub.templateId.toUpperCase()}
+                      </span>
+                      <Link
+                        href={`/dashboard?create=1&template=${activeSub.templateId}`}
+                        style={{
+                          backgroundColor: '#1D4ED8',
+                          color: '#FFFFFF',
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-xs font-extrabold text-white shadow-sm transition-colors hover:bg-[#1E40AF] sm:text-sm"
+                      >
+                        <span>تفعيل {activeSub.shortLabel}</span>
+                        <ArrowLeft size={16} />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
 
