@@ -46,6 +46,7 @@ import {
   accountQueryKey,
   createWebsiteInPlatform,
   getLocalAccount,
+  setActiveSiteUsername,
   siteQueryKey,
   siteUrl,
   slugifyUsername,
@@ -305,7 +306,17 @@ function CreateSiteModal({
 
   useEffect(() => {
     setTemplateId(initialTemplate);
-  }, [initialTemplate]);
+    if (open) {
+      setSiteName('');
+      setUsername('');
+      setTagline('');
+      setHeadline('');
+      setDescription('');
+      setCtaLabel('');
+      setInitialItems([]);
+      setSkillsText('');
+    }
+  }, [initialTemplate, open]);
 
   useEffect(() => {
     if (defaultPhone) {
@@ -733,32 +744,87 @@ function CreateSiteModal({
             </div>
           </div>
 
-          {/* 6. Initial Products / Dishes / Services / Projects */}
+          {/* 6. Initial Products / Dishes / Services / Projects / Survey Questions */}
           <div className="rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 space-y-3" style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
                   العناصر المبدئية ({itemNoun})
                 </p>
                 <p className="text-[11px] font-medium text-[#475569]" style={{ color: '#475569' }}>
-                  أضف منتجاتك أو خدماتك الحقيقية الآن أو لاحقاً من المحرر
+                  {templateId === 'survey'
+                    ? 'إذا تركت الأسئلة فارغة، سيضيف النظام تلقائياً 5 أسئلة متنوعة جاهزة (نجوم، اختيار فردي، اختيار متعدد، نعم/لا، وسؤال مفتوح).'
+                    : 'أضف منتجاتك أو خدماتك الحقيقية الآن أو لاحقاً من المحرر'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() =>
-                  setInitialItems((prev) => [
-                    ...prev,
-                    { name: '', price: '', category: '', description: '' },
-                  ])
-                }
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1E40AF]"
-                style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-                data-testid="button-modal-add-item"
-              >
-                <Plus size={14} />
-                <span>إضافة {itemNoun}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {templateId === 'survey' && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setInitialItems([
+                        {
+                          name: 'ما مدى رضاك العام عن مستوى الخدمة المقدمة؟',
+                          duration: 'rating',
+                          category: '5 نجوم، 4 نجوم، 3 نجوم، نجمتان، نجمة واحدة',
+                          description: 'اختر عدد النجوم من 1 إلى 5',
+                        },
+                        {
+                          name: 'كيف تقيّم سرعة الاستجابة والاحترافية في التعامل؟',
+                          duration: 'choice',
+                          category: 'ممتاز وفوق التوقعات، جيد جداً، جيد، يحتاج تحسين',
+                          description: 'اختر إجابة واحدة',
+                        },
+                        {
+                          name: 'ما هي الجوانب التي نالت إعجابك أكثر؟ (يمكن اختيار أكثر من إجابة)',
+                          duration: 'multi',
+                          category: 'جودة الخدمة، سرعة الإنجاز، وضوح الأسعار، سهولة التواصل',
+                          description: 'حدد كل ما ينطبق',
+                        },
+                        {
+                          name: 'هل توصي بخدماتنا لأصدقائك أو زملائك؟',
+                          duration: 'yesno',
+                          category: 'نعم بالتأكيد، ربما، لا',
+                          description: 'رأيك يهمنا',
+                        },
+                        {
+                          name: 'ما هي مقترحاتك أو ملاحظاتك لتطوير خدماتنا مستقبلاً؟',
+                          duration: 'text',
+                          category: 'سؤال مفتوح',
+                          description: 'اكتب رأيك بحرية',
+                        },
+                      ])
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1.5 text-xs font-extrabold text-[#1D4ED8] hover:bg-[#DBEAFE]"
+                    style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+                    data-testid="button-modal-load-survey-defaults"
+                  >
+                    <Sparkles size={13} />
+                    <span>إدراج 5 أسئلة متنوعة</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setInitialItems((prev) => [
+                      ...prev,
+                      {
+                        name: '',
+                        price: '',
+                        duration: templateId === 'survey' ? 'choice' : '',
+                        category: templateId === 'survey' ? 'ممتاز، جيد جداً، جيد، مقبول' : '',
+                        description: '',
+                      },
+                    ])
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1E40AF]"
+                  style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+                  data-testid="button-modal-add-item"
+                >
+                  <Plus size={14} />
+                  <span>إضافة {itemNoun}</span>
+                </button>
+              </div>
             </div>
 
             {initialItems.length > 0 && (
@@ -790,20 +856,41 @@ function CreateSiteModal({
                       style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
                     />
                     {templateId === 'survey' ? (
-                      <input
-                        type="text"
-                        value={item.category || ''}
-                        onChange={(e) =>
-                          setInitialItems((prev) =>
-                            prev.map((entry, i) =>
-                              i === idx ? { ...entry, category: e.target.value } : entry
+                      <>
+                        <select
+                          value={item.duration || 'choice'}
+                          onChange={(e) =>
+                            setInitialItems((prev) =>
+                              prev.map((entry, i) =>
+                                i === idx ? { ...entry, duration: e.target.value } : entry
+                              )
                             )
-                          )
-                        }
-                        placeholder="الخيارات بفاصلة (ممتاز، جيد، مقبول)"
-                        className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-4"
-                        style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                      />
+                          }
+                          className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2 text-xs font-bold text-[#0F172A] sm:col-span-3"
+                          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                        >
+                          <option value="choice">اختيار فردي</option>
+                          <option value="multi">اختيار متعدد</option>
+                          <option value="rating">تقييم بالنجوم (1-5)</option>
+                          <option value="nps">مقياس رقمي (1-10)</option>
+                          <option value="yesno">نعم / لا / ربما</option>
+                          <option value="text">سؤال مفتوح (نصي)</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={item.category || ''}
+                          onChange={(e) =>
+                            setInitialItems((prev) =>
+                              prev.map((entry, i) =>
+                                i === idx ? { ...entry, category: e.target.value } : entry
+                              )
+                            )
+                          }
+                          placeholder="الخيارات بفاصلة (ممتاز، جيد، مقبول)"
+                          className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-4"
+                          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                        />
+                      </>
                     ) : (
                       templateId !== 'portfolio' && (
                         <input
@@ -828,28 +915,24 @@ function CreateSiteModal({
                         />
                       )
                     )}
-                    <input
-                      type="text"
-                      value={item.description || ''}
-                      onChange={(e) =>
-                        setInitialItems((prev) =>
-                          prev.map((entry, i) =>
-                            i === idx ? { ...entry, description: e.target.value } : entry
+                    {templateId !== 'survey' && (
+                      <input
+                        type="text"
+                        value={item.description || ''}
+                        onChange={(e) =>
+                          setInitialItems((prev) =>
+                            prev.map((entry, i) =>
+                              i === idx ? { ...entry, description: e.target.value } : entry
+                            )
                           )
-                        )
-                      }
-                      placeholder={
-                        templateId === 'survey' ? 'توضيح إضافي (اختياري)' : 'وصف مختصر'
-                      }
-                      className={`h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-medium text-[#0F172A] ${
-                        templateId === 'portfolio'
-                          ? 'sm:col-span-7'
-                          : templateId === 'survey'
-                          ? 'sm:col-span-3'
-                          : 'sm:col-span-4'
-                      }`}
-                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    />
+                        }
+                        placeholder="وصف مختصر"
+                        className={`h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-medium text-[#0F172A] ${
+                          templateId === 'portfolio' ? 'sm:col-span-7' : 'sm:col-span-4'
+                        }`}
+                        style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                      />
+                    )}
                     <button
                       type="button"
                       onClick={() => setInitialItems((prev) => prev.filter((_, i) => i !== idx))}
@@ -1183,9 +1266,15 @@ function HomeSection({
   account: Account;
   onOpenCreate: (templateId?: string) => void;
 }) {
+  const [, navigate] = useLocation();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const website = account.website;
+  const websites =
+    account.websites && account.websites.length > 0
+      ? account.websites
+      : account.website
+      ? [account.website]
+      : [];
 
   return (
     <div className="space-y-7">
@@ -1217,7 +1306,7 @@ function HomeSection({
               className="mt-1.5 max-w-xl text-xs font-medium leading-relaxed text-[#CBD5E1] sm:text-sm"
               style={{ color: '#CBD5E1' }}
             >
-              قسمان منظمان بدون حشو: خدمات المواقع والواجهات الرقمية، والخدمات التفاعلية (الاستبيان، الحجز، الدعوات، الباقات) — لكل خدمة قالبها المخصص.
+              قسمان منظمان بدون حشو: خدمات المواقع والواجهات الرقمية، والخدمات التفاعلية (الاستبيان، الحجز، الدعوات، الباقات) — لكل خدمة قالبها المخصص ولوحة نتائجها المستقلة.
             </p>
           </div>
 
@@ -1256,80 +1345,121 @@ function HomeSection({
         </div>
       </div>
 
-      {/* Active Website Preview Widget or Empty State Banner */}
-      {website ? (
-        <Card
-          className="overflow-hidden border-[#93C5FD] p-5"
-          style={{
-            background: 'linear-gradient(135deg, #FFFFFF 0%, #EFF6FF 100%)',
-            backgroundColor: '#FFFFFF',
-            borderColor: '#93C5FD',
-            color: '#0F172A',
-          }}
-        >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3.5">
-              <span
-                className="grid size-12 shrink-0 place-items-center rounded-2xl text-white shadow-xs"
-                style={{ backgroundColor: website.themeColor || '#1D4ED8', color: '#FFFFFF' }}
-              >
-                <Globe size={22} />
-              </span>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3
-                    className="text-base font-black text-[#0F172A]"
-                    style={{ color: '#0F172A' }}
-                  >
-                    {website.siteName}
-                  </h3>
-                  <span
-                    className="rounded-md border border-[#BFDBFE] bg-white px-2 py-0.5 text-[11px] font-extrabold text-[#1D4ED8]"
-                    style={{ backgroundColor: '#FFFFFF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-                  >
-                    {TEMPLATE_NAMES[website.templateId] ?? website.templateId}
-                  </span>
-                  <span
-                    className="text-xs font-extrabold"
-                    style={{ color: '#059669' }}
-                  >
-                    ● منشور
-                  </span>
-                </div>
-                <p
-                  dir="ltr"
-                  className="mt-0.5 text-right font-mono text-xs font-bold text-[#334155]"
-                  style={{ color: '#334155' }}
-                >
-                  {siteUrl(website.username)}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                href="/dashboard/site"
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-4 py-2.5 text-xs font-bold text-white shadow-xs transition-colors hover:bg-[#1E40AF]"
-                style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-              >
-                <Pencil size={14} />
-                <span>تخصيص القالب</span>
-              </Link>
-              <a
-                href={siteUrl(website.username)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[#0B132B] px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-[#1E293B]"
-                style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
-              >
-                <ExternalLink size={14} />
-                <span>معاينة حية</span>
-              </a>
-              <CopyLinkButton url={siteUrl(website.username)} />
-            </div>
+      {/* All Created Websites & Services List (Preserves all previous sites) */}
+      {websites.length > 0 && (
+        <div className="space-y-3" data-testid="home-websites-list">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+              مواقعك وخدماتك المنشورة ({websites.length})
+            </h2>
+            <Link
+              href="/dashboard/services"
+              className="text-xs font-extrabold text-[#1D4ED8] hover:underline"
+              style={{ color: '#1D4ED8' }}
+            >
+              إدارة جميع المواقع ←
+            </Link>
           </div>
-        </Card>
-      ) : null}
+          <div className="grid gap-4 md:grid-cols-2">
+            {websites.map((site) => (
+              <Card
+                key={site.id}
+                className="overflow-hidden border-[#93C5FD] p-5"
+                style={{
+                  background: 'linear-gradient(135deg, #FFFFFF 0%, #EFF6FF 100%)',
+                  backgroundColor: '#FFFFFF',
+                  borderColor: '#93C5FD',
+                  color: '#0F172A',
+                }}
+                data-testid={`site-card-${site.username}`}
+              >
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3.5">
+                      <span
+                        className="grid size-12 shrink-0 place-items-center rounded-2xl text-white shadow-xs"
+                        style={{ backgroundColor: site.themeColor || '#1D4ED8', color: '#FFFFFF' }}
+                      >
+                        <Globe size={22} />
+                      </span>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3
+                            className="text-base font-black text-[#0F172A]"
+                            style={{ color: '#0F172A' }}
+                          >
+                            {site.siteName}
+                          </h3>
+                          <span
+                            className="rounded-md border border-[#BFDBFE] bg-white px-2 py-0.5 text-[11px] font-extrabold text-[#1D4ED8]"
+                            style={{
+                              backgroundColor: '#FFFFFF',
+                              borderColor: '#BFDBFE',
+                              color: '#1D4ED8',
+                            }}
+                          >
+                            {TEMPLATE_NAMES[site.templateId] ?? site.templateId}
+                          </span>
+                          <span className="text-xs font-extrabold" style={{ color: '#059669' }}>
+                            ● منشور
+                          </span>
+                        </div>
+                        <p
+                          dir="ltr"
+                          className="mt-0.5 text-right font-mono text-xs font-bold text-[#334155]"
+                          style={{ color: '#334155' }}
+                        >
+                          {siteUrl(site.username)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveSiteUsername(site.username);
+                        navigate('/dashboard/site');
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3.5 py-2 text-xs font-bold text-white shadow-xs transition-colors hover:bg-[#1E40AF]"
+                      style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+                      data-testid={`button-edit-${site.username}`}
+                    >
+                      <Pencil size={14} />
+                      <span>تخصيص القالب</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveSiteUsername(site.username);
+                        navigate('/dashboard/site?tab=results');
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#BFDBFE] bg-white px-3.5 py-2 text-xs font-extrabold text-[#1D4ED8] transition-colors hover:bg-[#DBEAFE]"
+                      style={{ backgroundColor: '#FFFFFF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+                      data-testid={`button-results-${site.username}`}
+                    >
+                      <BarChart3 size={14} />
+                      <span>النتائج والردود ({site.submissionsCount ?? 0})</span>
+                    </button>
+                    <a
+                      href={siteUrl(site.username)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#0B132B] px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-[#1E293B]"
+                      style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
+                    >
+                      <ExternalLink size={14} />
+                      <span>معاينة</span>
+                    </a>
+                    <CopyLinkButton url={siteUrl(site.username)} />
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Consolidated 2-Group Services Catalog */}
       <ConsolidatedServicesCatalog query={query} onOpenCreate={onOpenCreate} />
@@ -1347,8 +1477,13 @@ function ServicesSection({
   account: Account;
   onOpenCreate: (templateId?: string) => void;
 }) {
-  const website = account.website;
-  const url = website ? siteUrl(website.username) : '';
+  const [, navigate] = useLocation();
+  const websites =
+    account.websites && account.websites.length > 0
+      ? account.websites
+      : account.website
+      ? [account.website]
+      : [];
 
   return (
     <div className="space-y-6">
@@ -1358,13 +1493,13 @@ function ServicesSection({
             className="text-2xl font-black text-[#0F172A]"
             style={{ color: '#0F172A' }}
           >
-            خدماتي ومواقعي
+            خدماتي ومواقعي ({websites.length})
           </h1>
           <p
             className="mt-1 text-sm font-medium text-[#475569]"
             style={{ color: '#475569' }}
           >
-            إدارة المحتوى وتعديل التصاميم وإطلاق خدمات جديدة
+            جميع مواقعك وخدماتك التفاعلية محفوظة هنا — يمكنك تعديل أي منها أو استعراض النتائج والردود المستلمة
           </p>
         </div>
         <button
@@ -1373,94 +1508,115 @@ function ServicesSection({
           style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
         >
           <Plus size={16} />
-          <span>إضافة موقع جديد</span>
+          <span>إضافة موقع أو خدمة جديدة</span>
         </button>
       </div>
 
-      {website ? (
-        <Card className="overflow-hidden border border-[#CBD5E1]">
-          <div
-            className="flex flex-col gap-4 border-b border-[#E2E8F0] p-6 sm:flex-row sm:items-center sm:justify-between"
-            style={{ borderColor: '#E2E8F0' }}
-          >
-            <div className="flex items-center gap-4">
-              <span
-                className="grid size-14 shrink-0 place-items-center rounded-2xl text-white shadow-xs"
-                style={{ backgroundColor: website.themeColor || '#1D4ED8', color: '#FFFFFF' }}
+      {websites.length > 0 && (
+        <div className="space-y-4" data-testid="services-websites-list">
+          {websites.map((website) => {
+            const url = siteUrl(website.username);
+            return (
+              <Card
+                key={website.id}
+                className="overflow-hidden border border-[#CBD5E1]"
+                data-testid={`service-site-card-${website.username}`}
               >
-                <Globe size={24} />
-              </span>
-              <div className="min-w-0">
-                <h2
-                  className="truncate text-lg font-black text-[#0F172A]"
-                  style={{ color: '#0F172A' }}
-                  data-testid="text-site-name"
+                <div
+                  className="flex flex-col gap-4 border-b border-[#E2E8F0] p-6 sm:flex-row sm:items-center sm:justify-between"
+                  style={{ borderColor: '#E2E8F0' }}
                 >
-                  {website.siteName}
-                </h2>
-                <p
-                  dir="ltr"
-                  className="truncate text-right font-mono text-xs font-bold text-[#475569]"
-                  style={{ color: '#475569' }}
-                >
-                  {url.replace(/^https?:\/\//, '')}
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
-              <span
-                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-3 py-1 text-[#334155]"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
-              >
-                {TEMPLATE_NAMES[website.templateId] ?? website.templateId}
-              </span>
-              <span
-                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-3 py-1 text-[#334155]"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
-              >
-                {STYLE_NAMES[website.templateStyle] ?? website.templateStyle}
-              </span>
-              <span
-                className="rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] px-3 py-1 text-[#047857]"
-                style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
-              >
-                ● منشور ومتاح
-              </span>
-            </div>
-          </div>
+                  <div className="flex items-center gap-4">
+                    <span
+                      className="grid size-14 shrink-0 place-items-center rounded-2xl text-white shadow-xs"
+                      style={{ backgroundColor: website.themeColor || '#1D4ED8', color: '#FFFFFF' }}
+                    >
+                      <Globe size={24} />
+                    </span>
+                    <div className="min-w-0">
+                      <h2
+                        className="truncate text-lg font-black text-[#0F172A]"
+                        style={{ color: '#0F172A' }}
+                        data-testid="text-site-name"
+                      >
+                        {website.siteName}
+                      </h2>
+                      <p
+                        dir="ltr"
+                        className="truncate text-right font-mono text-xs font-bold text-[#475569]"
+                        style={{ color: '#475569' }}
+                      >
+                        {url.replace(/^https?:\/\//, '')}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+                    <span
+                      className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-3 py-1 text-[#334155]"
+                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
+                    >
+                      {TEMPLATE_NAMES[website.templateId] ?? website.templateId}
+                    </span>
+                    <span
+                      className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1 font-extrabold text-[#1D4ED8]"
+                      style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+                    >
+                      الردود والطلبات: {website.submissionsCount ?? 0}
+                    </span>
+                    <span
+                      className="rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] px-3 py-1 text-[#047857]"
+                      style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
+                    >
+                      ● منشور ومتاح
+                    </span>
+                  </div>
+                </div>
 
-          <div className="flex flex-wrap gap-3 p-6">
-            <Link
-              href="/dashboard/site"
-              className="inline-flex items-center gap-2 rounded-xl bg-[#1D4ED8] px-5 py-2.5 text-sm font-bold text-white shadow-xs transition-colors hover:bg-[#1E40AF]"
-              style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-              data-testid="link-edit-site"
-            >
-              <Pencil size={16} />
-              <span>محرر الاستوديو المتكامل</span>
-            </Link>
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl bg-[#0B132B] px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#1E293B]"
-              style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
-              data-testid="link-open-site"
-            >
-              <ExternalLink size={16} />
-              <span>فتح الموقع مباشرة</span>
-            </a>
-            <CopyLinkButton url={url} />
-          </div>
-
-          <div
-            className="border-t border-[#E2E8F0] bg-[#F8FAFC] px-6 py-4 text-xs font-medium leading-6 text-[#475569]"
-            style={{ backgroundColor: '#F8FAFC', borderColor: '#E2E8F0', color: '#475569' }}
-          >
-            يمكنك تعديل العناصر والأسئلة والباقات والروابط بالكامل من محرر الاستوديو، أو تغيير نوع القالب من الأقسام المجمّعة أدناه.
-          </div>
-        </Card>
-      ) : null}
+                <div className="flex flex-wrap gap-3 p-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveSiteUsername(website.username);
+                      navigate('/dashboard/site');
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#1D4ED8] px-5 py-2.5 text-sm font-bold text-white shadow-xs transition-colors hover:bg-[#1E40AF]"
+                    style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+                    data-testid="link-edit-site"
+                  >
+                    <Pencil size={16} />
+                    <span>تخصيص القالب والمحتوى</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveSiteUsername(website.username);
+                      navigate('/dashboard/site?tab=results');
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-5 py-2.5 text-sm font-black text-[#1D4ED8] transition-colors hover:bg-[#DBEAFE]"
+                    style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+                    data-testid={`link-results-site-${website.username}`}
+                  >
+                    <BarChart3 size={16} />
+                    <span>النتائج والردود المستلمة ({website.submissionsCount ?? 0})</span>
+                  </button>
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#0B132B] px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#1E293B]"
+                    style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
+                    data-testid="link-open-site"
+                  >
+                    <ExternalLink size={16} />
+                    <span>فتح الموقع مباشرة</span>
+                  </a>
+                  <CopyLinkButton url={url} />
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <ConsolidatedServicesCatalog onOpenCreate={onOpenCreate} />
     </div>
@@ -2226,11 +2382,14 @@ export default function Dashboard() {
         initialTemplate={selectedTemplate}
         defaultPhone={activeAccount.phoneNumber}
         onSuccess={(createdDoc) => {
+          setActiveSiteUsername(createdDoc.username);
           const updatedAccount = getLocalAccount();
           if (updatedAccount) {
             queryClient.setQueryData(accountQueryKey, updatedAccount);
           }
           queryClient.setQueryData(siteQueryKey, createdDoc);
+          queryClient.setQueryData(['account', 'site', createdDoc.username], createdDoc);
+          void queryClient.invalidateQueries({ queryKey: accountQueryKey });
           navigate('/dashboard/site');
         }}
       />

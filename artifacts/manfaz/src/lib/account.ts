@@ -4,6 +4,51 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 // out). Hand-written rather than orval-generated: these endpoints are
 // cookie-session based and live beside, not inside, the admin/public spec.
 
+export interface SiteSubmissionAnswer {
+  question: string;
+  questionType?: string;
+  type?: string;
+  answer: string;
+}
+
+export interface SiteSubmission {
+  id: string;
+  type: 'survey' | 'booking' | 'rsvp' | 'invoice' | 'order' | 'contact' | string;
+  respondentName?: string;
+  respondentPhone?: string;
+  rating?: number;
+  overallRating?: number;
+  nps?: number;
+  serviceName?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
+  attending?: string;
+  guests?: string;
+  answers?: SiteSubmissionAnswer[];
+  details?: Record<string, unknown>;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface SubmissionInput {
+  type: 'survey' | 'booking' | 'rsvp' | 'invoice' | 'order' | 'contact' | string;
+  respondentName?: string;
+  respondentPhone?: string;
+  name?: string;
+  phone?: string;
+  rating?: number;
+  overallRating?: number;
+  nps?: number;
+  serviceName?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
+  attending?: string;
+  guests?: string;
+  answers?: SiteSubmissionAnswer[];
+  details?: Record<string, unknown>;
+  notes?: string;
+}
+
 export interface AccountWebsite {
   id: string;
   username: string;
@@ -16,6 +61,7 @@ export interface AccountWebsite {
   updatedAt: string;
   visitsToday: number;
   visitsTotal: number;
+  submissionsCount?: number;
 }
 
 export interface Account {
@@ -25,6 +71,7 @@ export interface Account {
   freeMessagesLimit: number;
   createdAt: string;
   website: AccountWebsite | null;
+  websites?: AccountWebsite[];
 }
 
 export interface LoginChallenge {
@@ -55,6 +102,7 @@ function apiBase(): string {
 const LOCAL_ACCOUNT_KEY = 'orxai_workspace_account';
 const LOCAL_SITES_KEY = 'orxai_workspace_sites';
 const LOCAL_LATEST_SITE_KEY = 'orxai_latest_site';
+const ACTIVE_SITE_USERNAME_KEY = 'orxai_active_site_username';
 const SESSION_TOKEN_KEY = 'orxai_session_token';
 const DEVICE_ID_KEY = 'orxai_device_id';
 const TRUSTED_DEVICES_KEY = 'orxai_trusted_device_accounts';
@@ -273,21 +321,92 @@ export function registerOrLoginWithPhone(phoneInput: string): Account {
   return newAccount;
 }
 
-export function getLocalSiteDocument(): SiteDocument | null {
+export function getActiveSiteUsername(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(ACTIVE_SITE_USERNAME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveSiteUsername(username: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (username && username.trim()) {
+      localStorage.setItem(ACTIVE_SITE_USERNAME_KEY, username.trim());
+    } else {
+      localStorage.removeItem(ACTIVE_SITE_USERNAME_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function getAllLocalSiteDocuments(): SiteDocument[] {
+  if (typeof window === 'undefined') return [];
+  const storedSites = localStorage.getItem(LOCAL_SITES_KEY);
+  if (!storedSites) return [];
+  try {
+    const sites = JSON.parse(storedSites) as Record<string, SiteDocument>;
+    return Object.values(sites)
+      .filter((doc): doc is SiteDocument => Boolean(doc && doc.username))
+      .sort(
+        (a, b) =>
+          Date.parse(b.updatedAt || b.createdAt || '') -
+          Date.parse(a.updatedAt || a.createdAt || '')
+      );
+  } catch {
+    return [];
+  }
+}
+
+export function toAccountWebsiteSummary(
+  doc: SiteDocument,
+  prev?: AccountWebsite | null
+): AccountWebsite {
+  const submissionsCount = Array.isArray(doc.jsonStructure?.submissions)
+    ? (doc.jsonStructure.submissions as unknown[]).length
+    : prev?.submissionsCount ?? 0;
+  return {
+    id: doc.id,
+    username: doc.username,
+    siteName: doc.siteName,
+    templateId: doc.templateId,
+    themeColor: doc.themeColor,
+    templateStyle: (doc.jsonStructure?.templateStyle as string) || 'modern',
+    showBranding: doc.showBranding,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt || new Date().toISOString(),
+    visitsToday: prev?.visitsToday ?? 0,
+    visitsTotal: prev?.visitsTotal ?? 0,
+    submissionsCount,
+  };
+}
+
+export function getLocalSiteDocument(targetUsername?: string | null): SiteDocument | null {
   if (typeof window === 'undefined') return null;
   const account = getLocalAccount();
+  const desired = targetUsername?.trim() || getActiveSiteUsername() || '';
 
   const storedSites = localStorage.getItem(LOCAL_SITES_KEY);
   if (storedSites) {
     try {
       const sites = JSON.parse(storedSites) as Record<string, SiteDocument>;
+      if (desired && sites[desired]) {
+        return sites[desired];
+      }
+      if (desired) {
+        const byId = Object.values(sites).find((s) => s.id === desired);
+        if (byId) return byId;
+      }
       if (account?.website?.username && sites[account.website.username]) {
         return sites[account.website.username];
       }
       const latestRaw = localStorage.getItem(LOCAL_LATEST_SITE_KEY);
       if (latestRaw) {
         const latest = JSON.parse(latestRaw) as SiteDocument;
-        if (latest && latest.username) return latest;
+        if (latest && latest.username) return sites[latest.username] || latest;
       }
       const allSites = Object.values(sites);
       if (allSites.length > 0) {
@@ -328,8 +447,8 @@ export function saveLocalSiteDocument(doc: SiteDocument, previousUsername?: stri
   sites[doc.username] = doc;
   localStorage.setItem(LOCAL_SITES_KEY, JSON.stringify(sites));
   localStorage.setItem(LOCAL_LATEST_SITE_KEY, JSON.stringify(doc));
+  localStorage.setItem(ACTIVE_SITE_USERNAME_KEY, doc.username);
 
-  // Always ensure a local account exists and sync the website summary back to it
   let account = getLocalAccount();
   if (!account) {
     const contactObj = doc.jsonStructure?.contact as Record<string, unknown> | undefined;
@@ -340,38 +459,82 @@ export function saveLocalSiteDocument(doc: SiteDocument, previousUsername?: stri
       '966500000000';
     account = registerOrLoginWithPhone(fallbackPhone);
   }
-  account.website = {
-    id: doc.id,
-    username: doc.username,
-    siteName: doc.siteName,
-    templateId: doc.templateId,
-    themeColor: doc.themeColor,
-    templateStyle: (doc.jsonStructure?.templateStyle as string) || 'modern',
-    showBranding: doc.showBranding,
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt || new Date().toISOString(),
-    visitsToday: account.website?.visitsToday ?? 0,
-    visitsTotal: account.website?.visitsTotal ?? 0,
-  };
+
+  const existingSummaries = new Map<string, AccountWebsite>();
+  for (const w of account.websites ?? []) {
+    if (previousUsername && w.username === previousUsername) continue;
+    existingSummaries.set(w.username, w);
+  }
+  if (account.website && account.website.username !== previousUsername) {
+    existingSummaries.set(account.website.username, account.website);
+  }
+
+  const currentSummary = toAccountWebsiteSummary(
+    doc,
+    existingSummaries.get(doc.username) ??
+      (previousUsername ? existingSummaries.get(previousUsername) : null)
+  );
+  existingSummaries.set(doc.username, currentSummary);
+
+  for (const localDoc of Object.values(sites)) {
+    if (!localDoc?.username) continue;
+    existingSummaries.set(
+      localDoc.username,
+      toAccountWebsiteSummary(localDoc, existingSummaries.get(localDoc.username))
+    );
+  }
+
+  const allSummaries = Array.from(existingSummaries.values()).sort(
+    (a, b) =>
+      Date.parse(b.updatedAt || b.createdAt || '') -
+      Date.parse(a.updatedAt || a.createdAt || '')
+  );
+
+  account.website = currentSummary;
+  account.websites = allSummaries;
   saveLocalAccount(account);
 }
 
-export function clearLocalSiteDocument(): void {
+export function clearLocalSiteDocument(targetUsername?: string): void {
   if (typeof window === 'undefined') return;
   const account = getLocalAccount();
+  const usernameToDelete =
+    targetUsername?.trim() ||
+    getActiveSiteUsername() ||
+    account?.website?.username ||
+    '';
+
   const storedSites = localStorage.getItem(LOCAL_SITES_KEY);
-  if (storedSites && account?.website?.username) {
+  let remainingDocs: SiteDocument[] = [];
+  if (storedSites) {
     try {
       const sites = JSON.parse(storedSites) as Record<string, SiteDocument>;
-      delete sites[account.website.username];
+      if (usernameToDelete) {
+        delete sites[usernameToDelete];
+      }
       localStorage.setItem(LOCAL_SITES_KEY, JSON.stringify(sites));
+      remainingDocs = Object.values(sites)
+        .filter((d): d is SiteDocument => Boolean(d && d.username))
+        .sort((a, b) => Date.parse(b.updatedAt || '') - Date.parse(a.updatedAt || ''));
     } catch {
       // ignore
     }
   }
-  localStorage.removeItem(LOCAL_LATEST_SITE_KEY);
+
+  if (remainingDocs.length > 0) {
+    const nextActive = remainingDocs[0];
+    localStorage.setItem(LOCAL_LATEST_SITE_KEY, JSON.stringify(nextActive));
+    localStorage.setItem(ACTIVE_SITE_USERNAME_KEY, nextActive.username);
+  } else {
+    localStorage.removeItem(LOCAL_LATEST_SITE_KEY);
+    localStorage.removeItem(ACTIVE_SITE_USERNAME_KEY);
+  }
+
   if (account) {
-    account.website = null;
+    const nextWebsites = (account.websites ?? []).filter((w) => w.username !== usernameToDelete);
+    account.websites = nextWebsites;
+    account.website =
+      nextWebsites[0] ?? (remainingDocs[0] ? toAccountWebsiteSummary(remainingDocs[0]) : null);
     saveLocalAccount(account);
   }
 }
@@ -382,10 +545,79 @@ export function getLocalWebsiteByUsername(username: string): SiteDocument | null
   if (!storedSites) return null;
   try {
     const sites = JSON.parse(storedSites) as Record<string, SiteDocument>;
-    return sites[username] || null;
+    if (sites[username]) return sites[username];
+    const byId = Object.values(sites).find((s) => s.id === username);
+    return byId || null;
   } catch {
     return null;
   }
+}
+
+export async function submitPublicWebsiteResponse(
+  usernameOrPublicId: string,
+  input: SubmissionInput
+): Promise<SiteSubmission> {
+  const normalizedName = (input.respondentName || input.name || '').trim();
+  const normalizedPhone = (input.respondentPhone || input.phone || '').trim();
+  const fallbackSubmission: SiteSubmission = {
+    id: `sub_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    type: input.type,
+    respondentName: normalizedName,
+    respondentPhone: normalizedPhone,
+    ...(input.rating !== undefined ? { rating: input.rating } : {}),
+    ...(input.nps !== undefined ? { nps: input.nps } : {}),
+    answers: input.answers ?? [],
+    details: input.details ?? {},
+    notes: input.notes?.trim() || '',
+    createdAt: new Date().toISOString(),
+  };
+
+  let savedSubmission = fallbackSubmission;
+  try {
+    const res = await fetch(
+      `${apiBase()}/api/public/websites/${encodeURIComponent(usernameOrPublicId)}/submissions`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...input,
+          respondentName: normalizedName,
+          respondentPhone: normalizedPhone,
+        }),
+      }
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { submission?: SiteSubmission };
+      if (data.submission) {
+        savedSubmission = data.submission;
+      }
+    }
+  } catch {
+    // Fallback to local storage persistence when offline/preview
+  }
+
+  if (typeof window !== 'undefined') {
+    const doc = getLocalWebsiteByUsername(usernameOrPublicId);
+    if (doc) {
+      const existingList = Array.isArray(doc.jsonStructure?.submissions)
+        ? (doc.jsonStructure.submissions as SiteSubmission[])
+        : [];
+      const alreadyExists = existingList.some((s) => s.id === savedSubmission.id);
+      if (!alreadyExists) {
+        const updatedDoc: SiteDocument = {
+          ...doc,
+          jsonStructure: {
+            ...doc.jsonStructure,
+            submissions: [savedSubmission, ...existingList].slice(0, 200),
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        saveLocalSiteDocument(updatedDoc);
+      }
+    }
+  }
+
+  return savedSubmission;
 }
 
 export interface InitialCollectionItemInput {
@@ -460,8 +692,48 @@ export function getDefaultCtaForTemplate(templateId: string): string {
   }
 }
 
+export const DEFAULT_SURVEY_QUESTIONS: Array<Record<string, string>> = [
+  {
+    name: 'ما تقييمك لمستوى جودة الخدمة والاحترافية؟',
+    duration: 'rating',
+    category: '5 نجوم، 4 نجوم، 3 نجوم، نجمتان، نجمة واحدة',
+    description: 'اختر عدد النجوم من 1 إلى 5 حسب تجربتك الفعلية',
+  },
+  {
+    name: 'كيف تصف سرعة الاستجابة وإنجاز الطلب؟',
+    duration: 'choice',
+    category: 'سريع جداً ومميز، جيد، متوسط، يحتاج إلى تحسين',
+    description: 'اختر خياراً واحداً يعبّر عن تجربتك',
+  },
+  {
+    name: 'ما الجوانب التي أعجبتك أكثر في تعاملك معنا؟ (يمكنك اختيار أكثر من إجابة)',
+    duration: 'multi',
+    category: 'جودة المنتجات والخدمات، وضوح الأسعار، سهولة الطلب، رقي التعامل، سرعة التوصيل/التنفيذ',
+    description: 'حدد جميع النقاط التي نالت استحسانك',
+  },
+  {
+    name: 'هل تنصح أصدقاءك أو معارفك بالتعامل معنا؟',
+    duration: 'yesno',
+    category: 'نعم بالتأكيد، ربما مستقبلاً، لا',
+    description: 'مؤشر الثقة والتوصية',
+  },
+  {
+    name: 'ما اقتراحك الأهم لتطوير خدماتنا في الفترة القادمة؟',
+    duration: 'text',
+    category: '',
+    description: 'سؤال مفتوح — اكتب رأيك أو مقترحك بحرية',
+  },
+];
+
+function resolveUniqueLocalSlug(rawDesired: string): string {
+  const base = slugifyUsername(rawDesired);
+  const existing = getLocalWebsiteByUsername(base);
+  if (!existing) return base;
+  return `${base.slice(0, 26)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 export async function createWebsiteInPlatform(input: CreateInPlatformInput): Promise<SiteDocument> {
-  const slug = slugifyUsername(input.username?.trim() || input.siteName);
+  const slug = resolveUniqueLocalSlug(input.username?.trim() || input.siteName);
 
   const templateStyle = input.templateStyle || 'modern';
   const themeColor = input.themeColor || '#1D4ED8';
@@ -475,7 +747,7 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
     '';
   const activePhone = input.phone?.trim() || activeWhatsapp;
 
-  const cleanItems = (input.initialItems ?? [])
+  let cleanItems: Array<Record<string, string>> = (input.initialItems ?? [])
     .filter((item) => (item.name && item.name.trim()) || (item.title && item.title.trim()))
     .map((item) => {
       const label = (item.name || item.title || '').trim();
@@ -496,6 +768,10 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
         ...(item.image?.trim() ? { image: item.image.trim() } : {}),
       };
     });
+
+  if (input.templateId === 'survey' && cleanItems.length === 0) {
+    cleanItems = DEFAULT_SURVEY_QUESTIONS;
+  }
 
   const cleanHours = (input.hours ?? []).filter(
     (entry) => entry.day.trim() || entry.time.trim()
@@ -616,8 +892,11 @@ async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T>
       if (!local) throw new AuthRequiredError();
       return local as unknown as T;
     }
-    if (path === '/api/me/website' && method === 'GET') {
-      const doc = getLocalSiteDocument();
+    if (path.startsWith('/api/me/website') && method === 'GET') {
+      const qIndex = path.indexOf('?');
+      const params = qIndex >= 0 ? new URLSearchParams(path.slice(qIndex + 1)) : null;
+      const target = params?.get('username') || params?.get('id');
+      const doc = getLocalSiteDocument(target);
       if (!doc) throw new ApiError(404, 'No site found');
       return doc as unknown as T;
     }
@@ -634,32 +913,42 @@ export function useAccount() {
       try {
         const remote = await accountFetch<Account>('/api/me');
         const local = getLocalAccount();
-        const localSite = getLocalSiteDocument();
+        const localDocs = getAllLocalSiteDocuments();
+        const summaryMap = new Map<string, AccountWebsite>();
+        for (const w of local?.websites ?? []) summaryMap.set(w.username, w);
+        for (const d of localDocs) summaryMap.set(d.username, toAccountWebsiteSummary(d, summaryMap.get(d.username)));
+        for (const w of remote.websites ?? []) summaryMap.set(w.username, w);
+        if (remote.website) summaryMap.set(remote.website.username, remote.website);
+
+        const allWebsites = Array.from(summaryMap.values()).sort(
+          (a, b) =>
+            Date.parse(b.updatedAt || b.createdAt || '') -
+            Date.parse(a.updatedAt || a.createdAt || '')
+        );
+        const activeUsername = getActiveSiteUsername();
+        const activeWebsite =
+          (activeUsername ? summaryMap.get(activeUsername) : null) ??
+          remote.website ??
+          allWebsites[0] ??
+          null;
+
         const merged: Account = {
           ...remote,
-          website:
-            remote.website ??
-            local?.website ??
-            (localSite
-              ? {
-                  id: localSite.id,
-                  username: localSite.username,
-                  siteName: localSite.siteName,
-                  templateId: localSite.templateId,
-                  themeColor: localSite.themeColor,
-                  templateStyle: (localSite.jsonStructure?.templateStyle as string) || 'modern',
-                  showBranding: localSite.showBranding,
-                  createdAt: localSite.createdAt,
-                  updatedAt: localSite.updatedAt,
-                  visitsToday: 0,
-                  visitsTotal: 0,
-                }
-              : null),
+          website: activeWebsite,
+          websites: allWebsites,
         };
         saveLocalAccount(merged);
         return merged;
       } catch {
-        return getLocalAccount();
+        const local = getLocalAccount();
+        if (!local) return null;
+        const localDocs = getAllLocalSiteDocuments();
+        if (localDocs.length > 0 && (!local.websites || local.websites.length < localDocs.length)) {
+          local.websites = localDocs.map((d) => toAccountWebsiteSummary(d));
+          local.website = local.website ?? local.websites[0] ?? null;
+          saveLocalAccount(local);
+        }
+        return local;
       }
     },
     retry: false,
@@ -856,6 +1145,7 @@ export interface SiteDocument {
 }
 
 export interface SaveSiteInput {
+  id?: string;
   baseUpdatedAt: string;
   username?: string;
   siteName?: string;
@@ -867,16 +1157,18 @@ export interface SaveSiteInput {
 
 export const siteQueryKey = ['account', 'website'] as const;
 
-export function useSiteDocument() {
+export function useSiteDocument(targetUsername?: string | null) {
+  const activeUsername = targetUsername || getActiveSiteUsername() || '';
   return useQuery({
-    queryKey: siteQueryKey,
+    queryKey: [...siteQueryKey, activeUsername] as const,
     queryFn: async () => {
+      const querySuffix = activeUsername ? `?username=${encodeURIComponent(activeUsername)}` : '';
       try {
-        const remote = await accountFetch<SiteDocument>('/api/me/website');
+        const remote = await accountFetch<SiteDocument>(`/api/me/website${querySuffix}`);
         saveLocalSiteDocument(remote);
         return remote;
       } catch {
-        return getLocalSiteDocument();
+        return getLocalSiteDocument(activeUsername);
       }
     },
     retry: false,
@@ -893,7 +1185,10 @@ export function useSaveSite() {
       try {
         const res = await accountFetch<SiteDocument & { droppedFields: string[] }>('/api/me/website', {
           method: 'PATCH',
-          body: JSON.stringify(input),
+          body: JSON.stringify({
+            ...input,
+            id: input.id || current?.id,
+          }),
         });
         saveLocalSiteDocument(res, current?.username);
         return res;
@@ -924,6 +1219,7 @@ export function useSaveSite() {
     },
     onSuccess: (saved) => {
       queryClient.setQueryData(siteQueryKey, saved);
+      queryClient.setQueryData([...siteQueryKey, saved.username], saved);
       const updatedAccount = getLocalAccount();
       if (updatedAccount) {
         queryClient.setQueryData(accountQueryKey, updatedAccount);
@@ -935,22 +1231,27 @@ export function useSaveSite() {
 export function useDeleteSite() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (targetUsernameOrId?: string) => {
+      const current = getLocalSiteDocument(targetUsernameOrId);
+      const target = targetUsernameOrId || current?.username || '';
       try {
-        await accountFetch<{ deleted: boolean }>('/api/me/website', { method: 'DELETE' });
+        const suffix = target ? `?username=${encodeURIComponent(target)}` : '';
+        await accountFetch<{ deleted: boolean }>(`/api/me/website${suffix}`, { method: 'DELETE' });
       } catch {
         // Proceed with local cleanup if backend unavailable
       }
-      clearLocalSiteDocument();
+      clearLocalSiteDocument(current?.username || target);
       return { deleted: true };
     },
     onSuccess: () => {
-      queryClient.setQueryData(siteQueryKey, null);
+      const nextDoc = getLocalSiteDocument();
+      queryClient.setQueryData(siteQueryKey, nextDoc);
       const updatedAccount = getLocalAccount();
       if (updatedAccount) {
-        queryClient.setQueryData(accountQueryKey, { ...updatedAccount, website: null });
+        queryClient.setQueryData(accountQueryKey, updatedAccount);
       }
       void queryClient.invalidateQueries({ queryKey: accountQueryKey });
+      void queryClient.invalidateQueries({ queryKey: siteQueryKey });
     },
   });
 }

@@ -5,13 +5,17 @@ import {
   ArrowUpRight,
   BadgeCheck,
   Briefcase,
+  Calendar,
   CalendarCheck,
+  Check,
+  ClipboardList,
   Clock3,
   Facebook,
   Home,
   Info,
   Instagram,
   LayoutGrid,
+  Loader2,
   Mail,
   MapPin,
   Menu,
@@ -22,6 +26,7 @@ import {
   Search,
   Share2,
   ShoppingBag,
+  Sparkles,
   Star,
   Sun,
   Twitter,
@@ -34,7 +39,7 @@ import { useParams } from 'wouter';
 import { getGetPublicWebsiteQueryKey, useGetPublicWebsite } from '@workspace/api-client-react';
 import { useMinimumVisible } from '@/components/brand-splash';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { getLocalWebsiteByUsername } from '@/lib/account';
+import { getLocalWebsiteByUsername, submitPublicWebsiteResponse } from '@/lib/account';
 
 export type Json = Record<string, unknown>;
 
@@ -405,7 +410,15 @@ export function EmptyCollection({ label }: { label: string }) {
   return <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm" style={{ borderColor: 'var(--site-border)', background: 'var(--site-soft)', color: 'var(--site-muted)' }}>{label}</div>;
 }
 
-export type TemplateProps = { data: Json; siteName: string; dark: boolean; onToggleDark: () => void; showBranding: boolean };
+export type TemplateProps = {
+  data: Json;
+  siteName: string;
+  dark: boolean;
+  onToggleDark: () => void;
+  showBranding: boolean;
+  publicId?: string;
+  username?: string;
+};
 
 // ---------------------------------------------------------------------------
 // STORE — classic (grid catalogue) and modern (editorial mosaic) variants.
@@ -680,77 +693,556 @@ function PortfolioModern({ data, siteName, dark, onToggleDark, showBranding }: T
 // same shared system (Reveal, site-card-lift, site-btn-shine) as the other
 // seven templates, so it never looks like a bolted-on 9th thing.
 // ---------------------------------------------------------------------------
-function BookingTemplate({ data, siteName, dark, onToggleDark, showBranding }: TemplateProps) {
-  const services = items(data, ['services', 'offerings', 'items']);
-  const steps = items(data, ['process', 'steps']);
-  const extras = useSiteExtras(data);
-  const whatsapp = typeof extras.contact.whatsapp === 'string' && extras.contact.whatsapp ? extras.contact.whatsapp : (typeof extras.contact.phone === 'string' ? extras.contact.phone : '');
-  const bookHref = (label: string) => whatsapp ? `https://wa.me/${digitsOnly(whatsapp).replace(/^\+/, '')}?text=${encodeURIComponent(`أرغب بحجز موعد: ${label}`)}` : '#reach-us';
-  const defaultSteps: Json[] = [
-    { title: 'اختر الخدمة', description: 'تصفّح قائمة الخدمات وحدد ما يناسبك.' },
-    { title: 'اختر الوقت', description: 'راجع ساعات العمل واختر الموعد الأنسب لك.' },
-    { title: 'أكّد عبر واتساب', description: 'أرسل رسالة سريعة ونؤكد لك الحجز فوراً.' },
+function BookingTemplate({
+  data,
+  siteName,
+  dark,
+  onToggleDark,
+  showBranding,
+  publicId,
+  username,
+}: TemplateProps) {
+  const rawServices = items(data, ['services', 'offerings', 'items']);
+  const defaultServices: Json[] = [
+    {
+      name: 'استشارة تخصصية شاملة',
+      price: '150 ر.س',
+      duration: '45 دقيقة',
+      description: 'جلسة تشخيصية متكاملة مع خطة عمل واضحة ومخصصة لاحتياجك.',
+    },
+    {
+      name: 'حجز موعد خدمة سريعة',
+      price: '90 ر.س',
+      duration: '30 دقيقة',
+      description: 'خدمة مركّزة وسريعة بإشراف فريقنا المختص.',
+    },
+    {
+      name: 'باقة المتابعة المتقدمة',
+      price: '280 ر.س',
+      duration: '60 دقيقة',
+      description: 'جلسة مطولة تشمل المراجعة التفصيلية والتوصيات العملية.',
+    },
   ];
-  const processSteps: Json[] = (steps.length ? steps : defaultSteps) as Json[];
-  return <SiteShell siteName={siteName} logo={extras.logo} contact={extras.contact} social={extras.social} ctaLabel={extras.ctaLabel} dark={dark} onToggleDark={onToggleDark} showBranding={showBranding}>
-    <section id="top" className="relative mx-auto grid max-w-6xl gap-12 overflow-hidden px-5 pb-10 pt-10 md:grid-cols-[1.05fr_.95fr] md:items-center md:px-10 md:pb-20 md:pt-16">
-      <div className="pointer-events-none absolute -left-24 -top-24 size-72 rounded-full opacity-[0.08] blur-3xl [animation:site-float_7s_ease-in-out_infinite]" style={{ background: 'var(--site-accent)' }} />
-      <Reveal>
-        <span className="site-pill mb-5"><LiveDot color="var(--site-accent)" /><CalendarCheck size={14} /> احجز موعدك في دقيقة واحدة</span>
-        <h1 className="font-serif text-4xl font-bold leading-[1.45] md:text-6xl">{text(data, ['headline', 'title', 'heroTitle'], `احجز موعدك في ${siteName}`)}</h1>
-        <p className="mt-6 max-w-lg text-lg leading-8" style={{ color: 'var(--site-muted)' }}>{text(data, ['description', 'intro', 'about'], 'مواعيد مرنة وخدمة نثق بها — احجز الآن وسنكون بانتظارك.')}</p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <a href={bookHref(siteName)} target={whatsapp ? '_blank' : undefined} rel="noreferrer" className="site-btn-shine inline-flex items-center gap-2 rounded-xl px-5 py-3 font-bold text-white shadow-[0_10px_24px_-10px_var(--site-accent)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-10px_var(--site-accent)]" style={{ background: 'var(--site-accent)' }} data-testid="link-booking-cta">احجز الآن <ArrowLeft size={17} /></a>
-          <a href="#services" className="inline-flex items-center gap-2 rounded-xl border px-5 py-3 font-bold transition hover:-translate-y-0.5" style={{ borderColor: 'var(--site-border)' }} data-testid="link-booking-services">تصفّح الخدمات</a>
+  const services: Json[] = (rawServices.length > 0 ? rawServices : defaultServices) as Json[];
+  const extras = useSiteExtras(data);
+  const whatsapp =
+    typeof extras.contact.whatsapp === 'string' && extras.contact.whatsapp
+      ? extras.contact.whatsapp
+      : typeof extras.contact.phone === 'string'
+      ? extras.contact.phone
+      : '';
+
+  const upcomingDays = useMemo(() => {
+    const list: Array<{ iso: string; dayName: string; dateLabel: string }> = [];
+    for (let i = 0; i < 7; i += 1) {
+      const d = new Date(Date.now() + i * 86400000);
+      const iso = d.toISOString().slice(0, 10);
+      const dayName =
+        i === 0
+          ? 'اليوم'
+          : i === 1
+          ? 'غداً'
+          : new Intl.DateTimeFormat('ar-SA', { weekday: 'short' }).format(d);
+      const dateLabel = new Intl.DateTimeFormat('ar-SA', {
+        month: 'short',
+        day: 'numeric',
+      }).format(d);
+      list.push({ iso, dayName, dateLabel });
+    }
+    return list;
+  }, []);
+
+  const timeSlots = ['09:30 ص', '11:00 ص', '01:00 م', '04:30 م', '06:30 م', '08:30 م'];
+
+  const [selectedServiceIdx, setSelectedServiceIdx] = useState(0);
+  const [selectedDate, setSelectedDate] = useState(upcomingDays[0]?.iso || '');
+  const [selectedTime, setSelectedTime] = useState(timeSlots[1]);
+  const [clientName, setClientName] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [bookingNotes, setBookingNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmedRef, setConfirmedRef] = useState<string | null>(null);
+
+  const chosenService = asObject(services[selectedServiceIdx] ?? services[0]);
+  const chosenServiceName = text(chosenService, ['name', 'title'], 'موعد عام');
+  const chosenServicePrice = money(chosenService.price);
+  const chosenServiceDuration = text(chosenService, ['duration', 'time'], '45 دقيقة');
+
+  const handleConfirmBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clientName.trim()) return;
+    setSubmitting(true);
+    try {
+      const targetKey = username || publicId || siteName;
+      const saved = await submitPublicWebsiteResponse(targetKey, {
+        type: 'booking',
+        respondentName: clientName.trim(),
+        respondentPhone: clientPhone.trim() || undefined,
+        notes: bookingNotes.trim() || undefined,
+        meta: {
+          الخدمة: chosenServiceName,
+          التاريخ: selectedDate,
+          الوقت: selectedTime,
+          الرسوم: chosenServicePrice,
+        },
+        answers: [
+          { question: 'الخدمة المطلوبة', answer: chosenServiceName, type: 'choice' },
+          { question: 'تاريخ الموعد', answer: selectedDate, type: 'choice' },
+          { question: 'وقت الموعد', answer: selectedTime, type: 'choice' },
+        ],
+      });
+      setConfirmedRef(saved.id.slice(-6).toUpperCase());
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const bookingWhatsappHref = () => {
+    const msg = [
+      `تأكيد حجز موعد جديد — ${siteName}`,
+      `الاسم: ${clientName}`,
+      ...(clientPhone ? [`الجوال: ${clientPhone}`] : []),
+      `الخدمة: ${chosenServiceName} (${chosenServicePrice})`,
+      `التاريخ: ${selectedDate}`,
+      `الوقت: ${selectedTime}`,
+      ...(bookingNotes ? [`ملاحظات: ${bookingNotes}`] : []),
+    ].join('\n');
+    return whatsappUrl(whatsapp, msg);
+  };
+
+  return (
+    <div
+      dir="rtl"
+      className="site-public-shell min-h-[100dvh] transition-colors duration-300"
+      style={{ background: 'var(--site-bg)', color: 'var(--site-ink)' }}
+      data-testid="template-booking"
+    >
+      {/* Dedicated Booking Portal Header */}
+      <header
+        className="sticky top-0 z-30 border-b backdrop-blur-md"
+        style={{ borderColor: 'var(--site-border)', background: 'var(--site-card)' }}
+      >
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-4">
+          <div className="flex items-center gap-3">
+            {extras.logo ? (
+              <img src={extras.logo} alt={siteName} className="size-10 rounded-xl object-cover" />
+            ) : (
+              <span
+                className="grid size-10 place-items-center rounded-xl font-serif text-lg font-bold text-white"
+                style={{ background: 'var(--site-accent)' }}
+              >
+                <CalendarCheck size={20} />
+              </span>
+            )}
+            <div>
+              <span className="block font-serif text-lg font-bold">{siteName}</span>
+              <span className="block text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                {text(data, ['tagline'], 'بوابة حجز المواعيد الفورية')}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <ThemeToggle dark={dark} onToggle={onToggleDark} />
+            {whatsapp && (
+              <a
+                href={whatsappUrl(whatsapp)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold"
+                style={{ borderColor: 'var(--site-border)', background: 'var(--site-soft)' }}
+              >
+                <MessageCircle size={15} style={{ color: 'var(--site-accent)' }} /> استفسار سريع
+              </a>
+            )}
+          </div>
         </div>
-      </Reveal>
-      {extras.heroImage ? <Reveal delay={150}><HeroPhoto src={extras.heroImage} alt={siteName} className="site-shadow-lux h-72 md:h-[420px]" /></Reveal>
-        : <Reveal delay={150} className="relative min-h-[300px] overflow-hidden rounded-[32px]"><div className="h-full w-full rounded-[32px]" style={{ background: 'linear-gradient(135deg, var(--site-soft), var(--site-card))' }}><div className="relative h-full min-h-[300px]"><div className="absolute inset-8 rounded-[24px] border" style={{ borderColor: 'var(--site-border)', background: 'var(--site-card)' }} /><div className="absolute right-12 top-12 size-24 rounded-full opacity-80 [animation:site-float_6s_ease-in-out_infinite]" style={{ background: 'var(--site-accent)' }} /><div className="absolute bottom-12 left-12 flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold" style={{ background: 'var(--site-card)', color: 'var(--site-ink)' }}><BadgeCheck size={16} style={{ color: 'var(--site-accent)' }} /> حجوزات موثوقة</div></div></div></Reveal>}
-    </section>
-    <section className="mx-auto max-w-6xl px-5 pb-4 md:px-10">
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[
-          { icon: CalendarCheck, title: 'مواعيد مرنة', body: 'اختر الوقت الذي يناسب جدولك.' },
-          { icon: BadgeCheck, title: 'تأكيد فوري', body: 'تأكيد الحجز مباشرة عبر واتساب.' },
-          { icon: Users, title: 'خبرة موثوقة', body: 'فريق متمرّس يهتم بتفاصيل تجربتك.' },
-        ].map(({ icon: Icon, title, body }, index) => <Reveal key={title} delay={index * 70}><div className="site-card-lift rounded-2xl border p-5" style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }} data-testid={`card-value-${index}`}><span className="grid size-10 place-items-center rounded-xl" style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}><Icon size={18} /></span><h3 className="mt-4 font-bold">{title}</h3><p className="mt-1 text-sm leading-7" style={{ color: 'var(--site-muted)' }}>{body}</p></div></Reveal>)}
-      </div>
-    </section>
-    <section id="services" className="px-5 py-16 md:px-10">
-      <div className="mx-auto max-w-4xl">
-        <SectionHeading eyebrow="الخدمات القابلة للحجز" title="اختر خدمتك" />
-        {services.length === 0 ? <EmptyCollection label="لم تتم إضافة خدمات بعد." /> : <div className="space-y-3">
-          {services.map((raw, index) => { const item = asObject(raw); const duration = text(item, ['duration', 'time'], ''); return <Reveal key={index} delay={index * 60}><div className="site-card-lift flex flex-col gap-4 rounded-2xl border p-5 sm:flex-row sm:items-center sm:justify-between" style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }} data-testid={`card-booking-service-${index}`}>
-            <div className="flex items-start gap-4">
-              <span className="grid size-11 shrink-0 place-items-center rounded-full font-serif text-sm font-bold" style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}>{String(index + 1).padStart(2, '0')}</span>
+      </header>
+
+      <main className="mx-auto max-w-5xl px-5 py-10">
+        {/* Hero Intro */}
+        <div
+          className="rounded-3xl border p-6 sm:p-9"
+          style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+        >
+          <span className="site-pill">
+            <LiveDot color="var(--site-accent)" />
+            <CalendarCheck size={14} /> نظام حجز المواعيد المباشر
+          </span>
+          <h1 className="mt-4 font-serif text-3xl font-bold leading-snug sm:text-5xl">
+            {text(data, ['headline', 'title', 'heroTitle'], `احجز موعدك في ${siteName}`)}
+          </h1>
+          <p className="mt-3 max-w-2xl text-base leading-7" style={{ color: 'var(--site-muted)' }}>
+            {text(
+              data,
+              ['description', 'intro', 'about'],
+              'اختر الخدمة المطلوبة وحدد اليوم والوقت المناسبين لك ليتم تسجيل موعدك فوراً في النظام.'
+            )}
+          </p>
+        </div>
+
+        {confirmedRef ? (
+          <div
+            className="mt-8 rounded-3xl border-2 p-8 text-center shadow-lg"
+            style={{ background: 'var(--site-card)', borderColor: 'var(--site-accent)' }}
+            data-testid="booking-confirmed-card"
+          >
+            <div
+              className="mx-auto grid size-16 place-items-center rounded-2xl text-white shadow-md"
+              style={{ background: 'var(--site-accent)' }}
+            >
+              <BadgeCheck size={34} />
+            </div>
+            <span
+              className="mt-4 inline-block rounded-full px-3.5 py-1 font-mono text-xs font-extrabold"
+              style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}
+            >
+              تذكرة موعد مؤكدة #{confirmedRef}
+            </span>
+            <h2 className="mt-3 font-serif text-2xl font-bold sm:text-3xl">
+              تم تسجيل حجزك بنجاح يا {clientName}!
+            </h2>
+            <p className="mt-2 text-sm" style={{ color: 'var(--site-muted)' }}>
+              تم حفظ تفاصيل موعدك في لوحة حجوزات {siteName}.
+            </p>
+
+            <div
+              className="mx-auto mt-6 grid max-w-xl gap-3 rounded-2xl border p-5 text-right sm:grid-cols-2"
+              style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)' }}
+            >
               <div>
-                <h3 className="font-bold">{text(item, ['name', 'title'], 'خدمة')}</h3>
-                {text(item, ['description', 'details'], '') && <p className="mt-1 text-sm leading-6" style={{ color: 'var(--site-muted)' }}>{text(item, ['description', 'details'], '')}</p>}
-                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
-                  {duration && <span className="flex items-center gap-1"><Clock3 size={13} /> {duration}</span>}
-                  <span style={{ color: 'var(--site-accent)' }}>{money(item.price)}</span>
+                <span className="text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                  الخدمة المختارة
+                </span>
+                <p className="mt-0.5 font-bold">{chosenServiceName}</p>
+              </div>
+              <div>
+                <span className="text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                  الرسوم والمدة
+                </span>
+                <p className="mt-0.5 font-bold" style={{ color: 'var(--site-accent)' }}>
+                  {chosenServicePrice} ({chosenServiceDuration})
+                </p>
+              </div>
+              <div>
+                <span className="text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                  التاريخ المحدد
+                </span>
+                <p className="mt-0.5 font-mono font-bold">{selectedDate}</p>
+              </div>
+              <div>
+                <span className="text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                  الوقت المحدد
+                </span>
+                <p className="mt-0.5 font-bold">{selectedTime}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              {whatsapp && (
+                <a
+                  href={bookingWhatsappHref()}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="site-btn-shine inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold text-white"
+                  style={{ background: 'var(--site-accent)' }}
+                  data-testid="link-booking-whatsapp"
+                >
+                  <MessageCircle size={17} /> إرسال إشعار الموعد عبر واتساب
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setConfirmedRef(null)}
+                className="rounded-xl border px-5 py-3 text-sm font-bold"
+                style={{ borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+              >
+                حجز موعد آخر
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleConfirmBooking} className="mt-8 grid gap-6 lg:grid-cols-12">
+            {/* Step 1 & 2: Service + Date & Time */}
+            <div className="space-y-6 lg:col-span-7">
+              <div
+                className="rounded-3xl border p-6"
+                style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+              >
+                <span className="text-xs font-extrabold" style={{ color: 'var(--site-accent)' }}>
+                  الخطوة 01
+                </span>
+                <h2 className="mt-1 font-serif text-xl font-bold">اختر الخدمة المطلوبة</h2>
+                <div className="mt-4 space-y-3">
+                  {services.map((raw, index) => {
+                    const item = asObject(raw);
+                    const active = selectedServiceIdx === index;
+                    const duration = text(item, ['duration', 'time'], '45 دقيقة');
+                    return (
+                      <div
+                        key={index}
+                        onClick={() => setSelectedServiceIdx(index)}
+                        className="cursor-pointer rounded-2xl border-2 p-4 transition-all"
+                        style={
+                          active
+                            ? {
+                                borderColor: 'var(--site-accent)',
+                                background: 'var(--site-soft)',
+                              }
+                            : {
+                                borderColor: 'var(--site-border)',
+                                background: 'var(--site-card)',
+                              }
+                        }
+                        data-testid={`card-booking-service-${index}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <span
+                              className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border text-xs font-bold"
+                              style={
+                                active
+                                  ? {
+                                      background: 'var(--site-accent)',
+                                      borderColor: 'var(--site-accent)',
+                                      color: '#FFFFFF',
+                                    }
+                                  : { borderColor: 'var(--site-border)' }
+                              }
+                            >
+                              {active ? <Check size={13} /> : index + 1}
+                            </span>
+                            <div>
+                              <h3 className="font-bold">{text(item, ['name', 'title'], 'خدمة')}</h3>
+                              {text(item, ['description', 'details'], '') && (
+                                <p
+                                  className="mt-1 text-xs leading-6"
+                                  style={{ color: 'var(--site-muted)' }}
+                                >
+                                  {text(item, ['description', 'details'], '')}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-left">
+                            <span
+                              className="block font-mono text-sm font-extrabold"
+                              style={{ color: 'var(--site-accent)' }}
+                            >
+                              {money(item.price)}
+                            </span>
+                            <span
+                              className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold"
+                              style={{ color: 'var(--site-muted)' }}
+                            >
+                              <Clock3 size={11} /> {duration}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div
+                className="rounded-3xl border p-6"
+                style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+              >
+                <span className="text-xs font-extrabold" style={{ color: 'var(--site-accent)' }}>
+                  الخطوة 02
+                </span>
+                <h2 className="mt-1 font-serif text-xl font-bold">حدد التاريخ والوقت المناسب</h2>
+
+                <div className="mt-4">
+                  <label className="mb-2 block text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                    اختر اليوم
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {upcomingDays.map((d) => {
+                      const active = selectedDate === d.iso;
+                      return (
+                        <button
+                          key={d.iso}
+                          type="button"
+                          onClick={() => setSelectedDate(d.iso)}
+                          className="rounded-xl border p-2.5 text-center transition-all"
+                          style={
+                            active
+                              ? {
+                                  background: 'var(--site-accent)',
+                                  borderColor: 'var(--site-accent)',
+                                  color: '#FFFFFF',
+                                }
+                              : {
+                                  background: 'var(--site-soft)',
+                                  borderColor: 'var(--site-border)',
+                                  color: 'var(--site-ink)',
+                                }
+                          }
+                        >
+                          <span className="block text-xs font-black">{d.dayName}</span>
+                          <span className="mt-0.5 block text-[11px] opacity-85">{d.dateLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <label className="mb-2 block text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
+                    اختر الفترة الزمنية المتاحة
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {timeSlots.map((slot) => {
+                      const active = selectedTime === slot;
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          onClick={() => setSelectedTime(slot)}
+                          className="rounded-xl border py-2.5 text-xs font-bold transition-all"
+                          style={
+                            active
+                              ? {
+                                  background: 'var(--site-accent)',
+                                  borderColor: 'var(--site-accent)',
+                                  color: '#FFFFFF',
+                                }
+                              : {
+                                  background: 'var(--site-soft)',
+                                  borderColor: 'var(--site-border)',
+                                  color: 'var(--site-ink)',
+                                }
+                          }
+                        >
+                          {slot}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
-            <a href={bookHref(text(item, ['name', 'title'], 'خدمة'))} target={whatsapp ? '_blank' : undefined} rel="noreferrer" className="site-btn-shine inline-flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5" style={{ background: 'var(--site-accent)' }} data-testid={`link-book-service-${index}`}>احجز الآن</a>
-          </div></Reveal>; })}
-        </div>}
-      </div>
-    </section>
-    <section className="px-5 py-16 md:px-10" style={{ background: 'var(--site-soft)' }}>
-      <div className="mx-auto max-w-5xl">
-        <SectionHeading eyebrow="خطوات بسيطة" title="كيف تحجز موعدك؟" />
-        <div className="grid gap-6 sm:grid-cols-3">
-          {processSteps.slice(0, 4).map((raw, index) => { const step = asObject(raw); return <Reveal key={index} delay={index * 80}><div className="rounded-2xl border p-6" style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }} data-testid={`card-step-${index}`}><span className="font-serif text-3xl font-bold opacity-30" style={{ color: 'var(--site-accent)' }}>{String(index + 1).padStart(2, '0')}</span><h3 className="mt-4 font-bold">{text(step, ['title', 'name'], '')}</h3><p className="mt-2 text-sm leading-7" style={{ color: 'var(--site-muted)' }}>{text(step, ['description', 'details'], '')}</p></div></Reveal>; })}
-        </div>
-      </div>
-    </section>
-    <HoursSection hours={extras.hours} />
-    <TeamSection team={extras.team} />
-    <TestimonialsSection testimonials={extras.testimonials} />
-    <ContactSection contact={extras.contact} social={extras.social} />
-    <FaqSection faq={extras.faq} />
-  </SiteShell>;
+
+            {/* Step 3: Client Info & Submit */}
+            <div className="lg:col-span-5">
+              <div
+                className="sticky top-24 rounded-3xl border p-6 space-y-4"
+                style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
+              >
+                <span className="text-xs font-extrabold" style={{ color: 'var(--site-accent)' }}>
+                  الخطوة 03
+                </span>
+                <h2 className="font-serif text-xl font-bold">بيانات تأكيد الحجز</h2>
+
+                <div
+                  className="rounded-2xl border p-4 text-xs space-y-1.5"
+                  style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)' }}
+                >
+                  <div className="flex justify-between">
+                    <span style={{ color: 'var(--site-muted)' }}>الخدمة:</span>
+                    <span className="font-bold">{chosenServiceName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span style={{ color: 'var(--site-muted)' }}>الموعد:</span>
+                    <span className="font-bold">
+                      {selectedDate} · {selectedTime}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t pt-1.5" style={{ borderColor: 'var(--site-border)' }}>
+                    <span style={{ color: 'var(--site-muted)' }}>الرسوم:</span>
+                    <span className="font-mono font-extrabold" style={{ color: 'var(--site-accent)' }}>
+                      {chosenServicePrice}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold">الاسم الكامل *</label>
+                  <input
+                    type="text"
+                    required
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    placeholder="اكتب اسمك الكامل"
+                    className="mt-1.5 h-11 w-full rounded-xl border px-3.5 text-sm font-medium outline-none"
+                    style={{
+                      background: 'var(--site-soft)',
+                      borderColor: 'var(--site-border)',
+                      color: 'var(--site-ink)',
+                    }}
+                    data-testid="input-booking-name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold">رقم الجوال للتأكيد *</label>
+                  <input
+                    type="tel"
+                    required
+                    dir="ltr"
+                    value={clientPhone}
+                    onChange={(e) => setClientPhone(e.target.value)}
+                    placeholder="05XXXXXXXX"
+                    className="mt-1.5 h-11 w-full rounded-xl border px-3.5 text-left font-mono text-sm font-medium outline-none"
+                    style={{
+                      background: 'var(--site-soft)',
+                      borderColor: 'var(--site-border)',
+                      color: 'var(--site-ink)',
+                    }}
+                    data-testid="input-booking-phone"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold">ملاحظات إضافية (اختياري)</label>
+                  <textarea
+                    rows={2}
+                    value={bookingNotes}
+                    onChange={(e) => setBookingNotes(e.target.value)}
+                    placeholder="أي تفاصيل تود إبلاغنا بها قبل الموعد..."
+                    className="mt-1.5 w-full rounded-xl border p-3 text-sm font-medium outline-none"
+                    style={{
+                      background: 'var(--site-soft)',
+                      borderColor: 'var(--site-border)',
+                      color: 'var(--site-ink)',
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitting || !clientName.trim()}
+                  className="site-btn-shine inline-flex h-13 w-full items-center justify-center gap-2 rounded-xl text-sm font-bold text-white shadow-md disabled:opacity-60"
+                  style={{ background: 'var(--site-accent)' }}
+                  data-testid="button-booking-submit"
+                >
+                  {submitting ? <Loader2 size={18} className="animate-spin" /> : <CalendarCheck size={18} />}
+                  <span>{text(data, ['ctaLabel'], 'تأكيد وحجز الموعد الآن')}</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </main>
+
+      <HoursSection hours={extras.hours} />
+      <ContactSection contact={extras.contact} social={extras.social} />
+      {showBranding && (
+        <footer className="border-t py-6 text-center" style={{ borderColor: 'var(--site-border)' }}>
+          <a
+            href={(import.meta.env.VITE_FRONTEND_URL as string | undefined) || 'https://orxai.pages.dev'}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold opacity-60 hover:opacity-100"
+            style={{ color: 'var(--site-muted)' }}
+          >
+            <OrxaiMark monochrome className="h-3 w-auto" /> تم الإنشاء بواسطة orxai
+          </a>
+        </footer>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,37 +1616,83 @@ function WebsiteLoadingSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// SURVEY — Dedicated interactive customer survey & satisfaction rating template
+// SURVEY — Dedicated interactive customer survey & multi-question-type engine
+// Supports: choice (single), multi (checkboxes), rating (1-5 stars),
+//           nps (1-10 scale), yesno (نعم/لا/ربما), text (open input)
 // ---------------------------------------------------------------------------
-function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: TemplateProps) {
+function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding, publicId, username }: TemplateProps) {
   const rawQuestions = items(data, ['items', 'services', 'projects']);
   const extras = useSiteExtras(data);
   const defaultQuestions: Json[] = [
     {
-      name: 'كيف تقيّم تجربتك العامة مع خدماتنا؟',
-      category: 'ممتاز، جيد جداً، جيد، مقبول',
-      description: 'اختر التقييم الأقرب لتجربتك الأخيرة معنا',
+      name: 'ما تقييمك العام لمستوى الخدمة والتجربة معنا؟',
+      price: 'rating',
+      category: '5 نجوم',
+      description: 'اختر عدد النجوم من 1 إلى 5',
     },
     {
-      name: 'ما مدى سرعة الاستجابة وجودة التعامل؟',
-      category: 'سريع ومميز، جيد، يحتاج تحسين',
-      description: 'رأيك يساعدنا على تطوير سرعة الخدمة',
+      name: 'كيف تقيّم جودة الخدمة مقارنة بتوقعاتك؟',
+      price: 'choice',
+      category: 'ممتازة وتفوق التوقعات، جيدة جداً، جيدة، مقبولة، تحتاج تطوير',
+      description: 'اختر خياراً واحداً يعبّر عن رأيك',
     },
     {
-      name: 'هل توصي بخدماتنا لأصدقائك أو زملائك؟',
-      category: 'بالتأكيد نعم، ربما، لا',
-      description: 'مؤشر التوصية والولاء',
+      name: 'ما الجوانب التي نالت إعجابك أكثر؟ (يمكن اختيار أكثر من إجابة)',
+      price: 'multi',
+      category: 'سرعة الإنجاز، جودة العمل، احترافية التعامل، وضوح الأسعار، سهولة التواصل',
+      description: 'حدد جميع الخيارات المناسبة',
+    },
+    {
+      name: 'إلى أي مدى تنصح أصدقاءك أو زملاءك بالتعامل معنا؟',
+      price: 'nps',
+      category: '1 - 10',
+      description: '10 يعني أوصي بشدة و1 يعني لا أوصي',
+    },
+    {
+      name: 'هل واجهت أي صعوبة أثناء طلب الخدمة أو التواصل؟',
+      price: 'yesno',
+      category: 'لا أبداً، نعم قليلاً، ربما',
+      description: 'إجابتك تساعدنا على تحسين سهولة الاستخدام',
+    },
+    {
+      name: 'ما اقتراحك الأهم لتطوير خدماتنا في المستقبل؟',
+      price: 'text',
+      category: '',
+      description: 'اكتب رأيك أو ملاحظاتك بحرية',
     },
   ];
   const questions: Json[] = (rawQuestions.length > 0 ? rawQuestions : defaultQuestions) as Json[];
 
   const [overallRating, setOverallRating] = useState<number>(5);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [multiAnswers, setMultiAnswers] = useState<Record<number, string[]>>({});
   const [participantName, setParticipantName] = useState('');
+  const [participantPhone, setParticipantPhone] = useState('');
   const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const answeredCount = Object.keys(answers).filter((k) => answers[Number(k)]?.trim()).length;
+  const getEffectiveAnswer = (idx: number, qType: string): string => {
+    if (qType === 'multi') {
+      return (multiAnswers[idx] || []).join('، ');
+    }
+    return (answers[idx] || '').trim();
+  };
+
+  const detectQuestionType = (q: Json): 'choice' | 'multi' | 'rating' | 'nps' | 'yesno' | 'text' => {
+    const rawType = text(q, ['duration', 'price', 'type', 'questionType'], '').trim().toLowerCase();
+    if (rawType === 'multi' || rawType.includes('متعدد')) return 'multi';
+    if (rawType === 'rating' || rawType.includes('نجوم')) return 'rating';
+    if (rawType === 'nps' || rawType.includes('مقياس') || rawType.includes('10')) return 'nps';
+    if (rawType === 'yesno' || rawType.includes('نعم')) return 'yesno';
+    if (rawType === 'text' || rawType.includes('مفتوح') || rawType.includes('نص')) return 'text';
+    return 'choice';
+  };
+
+  const answeredCount = questions.filter((raw, idx) => {
+    const qType = detectQuestionType(asObject(raw));
+    return Boolean(getEffectiveAnswer(idx, qType));
+  }).length;
   const progressPct = Math.round(((answeredCount + (overallRating > 0 ? 1 : 0)) / (questions.length + 1)) * 100);
 
   const whatsapp =
@@ -1172,19 +1710,60 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
     5: 'ممتاز جداً',
   };
 
+  const toggleMultiOption = (qIdx: number, opt: string) => {
+    setMultiAnswers((prev) => {
+      const current = prev[qIdx] || [];
+      const next = current.includes(opt) ? current.filter((item) => item !== opt) : [...current, opt];
+      return { ...prev, [qIdx]: next };
+    });
+  };
+
   const buildWhatsappSummary = () => {
     const lines = [
       `تقييم واستبيان جديد — ${siteName}`,
       `التقييم العام: ${overallRating}/5 (${ratingLabels[overallRating] || ''})`,
       ...(participantName.trim() ? [`المشارك: ${participantName.trim()}`] : []),
+      ...(participantPhone.trim() ? [`الجوال: ${participantPhone.trim()}`] : []),
       ...questions.map((raw, i) => {
         const q = asObject(raw);
         const qTitle = text(q, ['name', 'title'], `سؤال ${i + 1}`);
-        return `${i + 1}. ${qTitle}: ${answers[i] || 'لم يُحدد'}`;
+        const qType = detectQuestionType(q);
+        return `${i + 1}. ${qTitle}: ${getEffectiveAnswer(i, qType) || 'لم يُحدد'}`;
       }),
       ...(notes.trim() ? [`ملاحظات إضافية: ${notes.trim()}`] : []),
     ];
     return whatsappUrl(whatsapp, lines.join('\n'));
+  };
+
+  const handleSubmitSurvey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetKey = publicId || username;
+    setSubmitting(true);
+    try {
+      if (targetKey) {
+        const formattedAnswers = questions.map((raw, idx) => {
+          const q = asObject(raw);
+          const qTitle = text(q, ['name', 'title'], `السؤال ${idx + 1}`);
+          const qType = detectQuestionType(q);
+          return {
+            question: qTitle,
+            type: qType,
+            answer: getEffectiveAnswer(idx, qType) || 'لم يُحدد',
+          };
+        });
+        await submitPublicWebsiteResponse(targetKey, {
+          type: 'survey',
+          name: participantName.trim() || 'مشارك في الاستبيان',
+          phone: participantPhone.trim(),
+          rating: overallRating,
+          notes: notes.trim(),
+          answers: formattedAnswers,
+        });
+      }
+    } finally {
+      setSubmitting(false);
+      setSubmitted(true);
+    }
   };
 
   return (
@@ -1193,7 +1772,7 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
       logo={extras.logo}
       contact={extras.contact}
       social={extras.social}
-      ctaLabel={text(data, ['ctaLabel'], 'إرسال التقييم')}
+      ctaLabel={text(data, ['ctaLabel'], 'إرسال الاستبيان')}
       dark={dark}
       onToggleDark={onToggleDark}
       showBranding={showBranding}
@@ -1201,16 +1780,16 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
       <section className="mx-auto max-w-3xl px-5 pb-16 pt-10 md:px-8 md:pt-14" data-testid="template-survey">
         {/* Survey Header Card */}
         <div
-          className="relative overflow-hidden rounded-3xl border p-6 sm:p-9"
+          className="relative overflow-hidden rounded-3xl border p-6 sm:p-9 shadow-sm"
           style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="site-pill">
               <LiveDot color="var(--site-accent)" />
-              {text(data, ['tagline', 'eyebrow'], 'استبيان قياس الرضا والتقييم')}
+              {text(data, ['tagline', 'eyebrow'], 'استبيان قياس الرضا والتقييم التفاعلي')}
             </span>
-            <span className="font-mono text-xs font-extrabold tabular-nums" style={{ color: 'var(--site-accent)' }}>
-              {questions.length} أسئلة سريعة
+            <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-mono text-xs font-extrabold tabular-nums" style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}>
+              <ClipboardList size={14} /> {questions.length} أسئلة متنوعة
             </span>
           </div>
 
@@ -1221,14 +1800,14 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
             {text(
               data,
               ['description', 'intro', 'about'],
-              'نسعد بمشاركتك رأيك الصريح لتطوير جودة خدماتنا والارتقاء بتجربتك معنا.'
+              'نسعد بمشاركتك رأيك الصريح عبر الأسئلة المتنوعة التالية لتطوير جودة خدماتنا والارتقاء بتجربتك معنا.'
             )}
           </p>
 
           {/* Progress Bar */}
           <div className="mt-6">
             <div className="mb-2 flex items-center justify-between text-xs font-bold" style={{ color: 'var(--site-muted)' }}>
-              <span>نسبة إكمال الاستبيان</span>
+              <span>نسبة إكمال الاستبيان ({answeredCount} من {questions.length} أسئلة)</span>
               <span className="font-mono tabular-nums" style={{ color: 'var(--site-accent)' }}>
                 {progressPct}%
               </span>
@@ -1244,7 +1823,7 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
 
         {submitted ? (
           <div
-            className="mt-6 rounded-3xl border p-8 text-center"
+            className="mt-6 rounded-3xl border p-8 text-center shadow-lg"
             style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
             data-testid="survey-submitted-card"
           >
@@ -1254,9 +1833,9 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
             >
               <BadgeCheck size={32} />
             </div>
-            <h2 className="mt-5 font-serif text-2xl font-bold">شكراً لمشاركتك رأيك!</h2>
+            <h2 className="mt-5 font-serif text-2xl font-bold">تم حفظ إجاباتك وتقييمك بنجاح!</h2>
             <p className="mx-auto mt-2 max-w-md text-sm leading-7" style={{ color: 'var(--site-muted)' }}>
-              تم تسجيل تقييمك ({overallRating} من 5 نجوم) وإجاباتك بنجاح. يمكنك أيضاً إرسال نسخة مباشرة عبر واتساب.
+              شكراً لمشاركتك ({overallRating} من 5 نجوم). تم تسجيل جميع إجاباتك في لوحة نتائج الاستبيان الخاصة بـ {siteName}.
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
               {whatsapp && (
@@ -1268,7 +1847,7 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
                   style={{ background: 'var(--site-accent)' }}
                   data-testid="link-survey-whatsapp-send"
                 >
-                  <MessageCircle size={17} /> إرسال الإجابات عبر واتساب
+                  <MessageCircle size={17} /> مشاركة نسخة عبر واتساب
                 </a>
               )}
               <button
@@ -1283,20 +1862,14 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
             </div>
           </div>
         ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSubmitted(true);
-            }}
-            className="mt-6 space-y-5"
-          >
+          <form onSubmit={handleSubmitSurvey} className="mt-6 space-y-5">
             {/* Overall Star Rating Card */}
             <div
               className="rounded-3xl border p-6"
               style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
             >
               <span className="text-xs font-bold" style={{ color: 'var(--site-accent)' }}>
-                التقييم العام
+                التقييم العام السريع
               </span>
               <h2 className="mt-1 text-lg font-bold">ما تقييمك الإجمالي لتجربتك مع {siteName}؟</h2>
               <div className="mt-4 flex flex-wrap items-center gap-2.5">
@@ -1334,24 +1907,34 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
               </div>
             </div>
 
-            {/* Dynamic Questions */}
+            {/* Dynamic Multi-Type Questions */}
             {questions.map((raw, index) => {
               const q = asObject(raw);
               const qTitle = text(q, ['name', 'title'], `السؤال ${index + 1}`);
               const qHint = text(q, ['description', 'details'], '');
-              const rawChoices = text(q, ['category', 'price'], '');
-              const choices = rawChoices
+              const qType = detectQuestionType(q);
+              const rawChoices = text(q, ['category'], '');
+              const parsedChoices = rawChoices
                 .split(/[,،|/]/)
                 .map((c) => c.trim())
                 .filter(Boolean);
-              const defaultScale = ['ممتاز', 'جيد جداً', 'جيد', 'مقبول', 'غير راضٍ'];
-              const optionPills = choices.length >= 2 ? choices : defaultScale;
+
               const currentAnswer = answers[index] || '';
+              const currentMulti = multiAnswers[index] || [];
+
+              const typeBadgeLabels: Record<string, string> = {
+                choice: 'اختيار واحد',
+                multi: 'اختيار متعدد',
+                rating: 'تقييم بالنجوم',
+                nps: 'مقياس 1 إلى 10',
+                yesno: 'نعم / لا',
+                text: 'إجابة مفتوحة',
+              };
 
               return (
                 <div
                   key={index}
-                  className="rounded-3xl border p-6"
+                  className="rounded-3xl border p-6 transition-all"
                   style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
                   data-testid={`card-survey-question-${index}`}
                 >
@@ -1363,69 +1946,237 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
                       0{index + 1}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-base font-bold leading-snug">{qTitle}</h3>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-base font-bold leading-snug">{qTitle}</h3>
+                        <span
+                          className="rounded-lg px-2.5 py-0.5 text-[11px] font-bold"
+                          style={{ background: 'var(--site-soft)', color: 'var(--site-accent)' }}
+                        >
+                          {typeBadgeLabels[qType] || 'اختيار'}
+                        </span>
+                      </div>
                       {qHint && (
                         <p className="mt-1 text-xs leading-5" style={{ color: 'var(--site-muted)' }}>
                           {qHint}
                         </p>
                       )}
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {optionPills.map((opt) => {
-                          const selected = currentAnswer === opt;
-                          return (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() => setAnswers((prev) => ({ ...prev, [index]: opt }))}
-                              className="rounded-xl border px-3.5 py-2 text-xs font-bold transition-all"
-                              style={
-                                selected
-                                  ? {
-                                      background: 'var(--site-accent)',
-                                      borderColor: 'var(--site-accent)',
-                                      color: '#FFFFFF',
-                                    }
-                                  : {
-                                      background: 'var(--site-soft)',
-                                      borderColor: 'var(--site-border)',
-                                      color: 'var(--site-ink)',
-                                    }
-                              }
-                              data-testid={`button-survey-q${index}-opt-${opt}`}
-                            >
-                              {opt}
-                            </button>
-                          );
-                        })}
-                      </div>
+
+                      {/* Type 1: Rating 1-5 stars */}
+                      {qType === 'rating' && (
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          {[1, 2, 3, 4, 5].map((star) => {
+                            const selectedStar = Number(currentAnswer.replace(/[^\d]/g, '') || 0);
+                            const isActive = selectedStar >= star;
+                            const starValue = `${star} نجوم (${ratingLabels[star]})`;
+                            return (
+                              <button
+                                key={star}
+                                type="button"
+                                onClick={() => setAnswers((prev) => ({ ...prev, [index]: starValue }))}
+                                className="flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition-all"
+                                style={
+                                  isActive
+                                    ? { background: 'var(--site-accent)', borderColor: 'var(--site-accent)', color: '#FFFFFF' }
+                                    : { background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }
+                                }
+                                data-testid={`button-survey-q${index}-star-${star}`}
+                              >
+                                <Star size={14} fill={isActive ? 'currentColor' : 'none'} />
+                                <span>{star}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Type 2: NPS 1-10 Scale */}
+                      {qType === 'nps' && (
+                        <div className="mt-4">
+                          <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => {
+                              const selected = currentAnswer === `${score} / 10`;
+                              return (
+                                <button
+                                  key={score}
+                                  type="button"
+                                  onClick={() => setAnswers((prev) => ({ ...prev, [index]: `${score} / 10` }))}
+                                  className="h-10 rounded-xl border font-mono text-xs font-extrabold transition-all"
+                                  style={
+                                    selected
+                                      ? { background: 'var(--site-accent)', borderColor: 'var(--site-accent)', color: '#FFFFFF' }
+                                      : { background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }
+                                  }
+                                  data-testid={`button-survey-q${index}-nps-${score}`}
+                                >
+                                  {score}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="mt-2 flex justify-between text-[11px] font-bold" style={{ color: 'var(--site-muted)' }}>
+                            <span>1 = غير محتمل إطلاقاً</span>
+                            <span>10 = أوصي بشدة</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Type 3: Yes / No / Maybe */}
+                      {qType === 'yesno' && (
+                        <div className="mt-4 flex flex-wrap gap-2.5">
+                          {(parsedChoices.length >= 2 ? parsedChoices : ['نعم بالتأكيد', 'لا', 'ربما / إلى حد ما']).map((opt) => {
+                            const selected = currentAnswer === opt;
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => setAnswers((prev) => ({ ...prev, [index]: opt }))}
+                                className="rounded-xl border px-5 py-2.5 text-xs font-bold transition-all"
+                                style={
+                                  selected
+                                    ? { background: 'var(--site-accent)', borderColor: 'var(--site-accent)', color: '#FFFFFF' }
+                                    : { background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }
+                                }
+                                data-testid={`button-survey-q${index}-yesno-${opt}`}
+                              >
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Type 4: Multi-select Checkboxes */}
+                      {qType === 'multi' && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {(parsedChoices.length >= 2
+                            ? parsedChoices
+                            : ['سرعة الخدمة', 'جودة العمل', 'احترافية الفريق', 'الأسعار المناسبة', 'سهولة التواصل']
+                          ).map((opt) => {
+                            const selected = currentMulti.includes(opt);
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => toggleMultiOption(index, opt)}
+                                className="inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-bold transition-all"
+                                style={
+                                  selected
+                                    ? { background: 'var(--site-accent)', borderColor: 'var(--site-accent)', color: '#FFFFFF' }
+                                    : { background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }
+                                }
+                                data-testid={`button-survey-q${index}-multi-${opt}`}
+                              >
+                                <span
+                                  className="grid size-4 place-items-center rounded border text-[10px]"
+                                  style={{
+                                    borderColor: selected ? '#FFFFFF' : 'var(--site-border)',
+                                    background: selected ? 'rgba(255,255,255,0.2)' : 'transparent',
+                                  }}
+                                >
+                                  {selected && <Check size={11} />}
+                                </span>
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Type 5: Open Text Question */}
+                      {qType === 'text' && (
+                        <div className="mt-4">
+                          <textarea
+                            rows={2}
+                            value={currentAnswer}
+                            onChange={(e) => setAnswers((prev) => ({ ...prev, [index]: e.target.value }))}
+                            placeholder="اكتب إجابتك هنا..."
+                            className="w-full rounded-xl border p-3 text-sm font-medium outline-none"
+                            style={{
+                              background: 'var(--site-soft)',
+                              borderColor: 'var(--site-border)',
+                              color: 'var(--site-ink)',
+                            }}
+                            data-testid={`textarea-survey-q${index}`}
+                          />
+                        </div>
+                      )}
+
+                      {/* Type 6: Single Choice (Default) */}
+                      {qType === 'choice' && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {(parsedChoices.length >= 2
+                            ? parsedChoices
+                            : ['ممتاز', 'جيد جداً', 'جيد', 'مقبول', 'غير راضٍ']
+                          ).map((opt) => {
+                            const selected = currentAnswer === opt;
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => setAnswers((prev) => ({ ...prev, [index]: opt }))}
+                                className="rounded-xl border px-3.5 py-2 text-xs font-bold transition-all"
+                                style={
+                                  selected
+                                    ? { background: 'var(--site-accent)', borderColor: 'var(--site-accent)', color: '#FFFFFF' }
+                                    : { background: 'var(--site-soft)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }
+                                }
+                                data-testid={`button-survey-q${index}-opt-${opt}`}
+                              >
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               );
             })}
 
-            {/* Participant Name & Open Feedback */}
+            {/* Participant Info & Open Feedback */}
             <div
               className="rounded-3xl border p-6 space-y-4"
               style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)' }}
             >
-              <div>
-                <label className="block text-xs font-bold" style={{ color: 'var(--site-ink)' }}>
-                  الاسم الكريم (اختياري)
-                </label>
-                <input
-                  type="text"
-                  value={participantName}
-                  onChange={(e) => setParticipantName(e.target.value)}
-                  placeholder="مثال: عبدالله العتيبي"
-                  className="mt-1.5 h-11 w-full rounded-xl border px-3.5 text-sm font-medium outline-none"
-                  style={{
-                    background: 'var(--site-soft)',
-                    borderColor: 'var(--site-border)',
-                    color: 'var(--site-ink)',
-                  }}
-                  data-testid="input-survey-participant"
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-bold" style={{ color: 'var(--site-ink)' }}>
+                    الاسم الكريم (اختياري)
+                  </label>
+                  <input
+                    type="text"
+                    value={participantName}
+                    onChange={(e) => setParticipantName(e.target.value)}
+                    placeholder="مثال: عبدالله العتيبي"
+                    className="mt-1.5 h-11 w-full rounded-xl border px-3.5 text-sm font-medium outline-none"
+                    style={{
+                      background: 'var(--site-soft)',
+                      borderColor: 'var(--site-border)',
+                      color: 'var(--site-ink)',
+                    }}
+                    data-testid="input-survey-participant"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold" style={{ color: 'var(--site-ink)' }}>
+                    رقم الجوال للتواصل عند الحاجة (اختياري)
+                  </label>
+                  <input
+                    type="tel"
+                    dir="ltr"
+                    value={participantPhone}
+                    onChange={(e) => setParticipantPhone(e.target.value)}
+                    placeholder="05XXXXXXXX"
+                    className="mt-1.5 h-11 w-full rounded-xl border px-3.5 text-left font-mono text-sm font-medium outline-none"
+                    style={{
+                      background: 'var(--site-soft)',
+                      borderColor: 'var(--site-border)',
+                      color: 'var(--site-ink)',
+                    }}
+                    data-testid="input-survey-phone"
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-bold" style={{ color: 'var(--site-ink)' }}>
@@ -1447,11 +2198,13 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
               </div>
               <button
                 type="submit"
-                className="site-btn-shine inline-flex h-13 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-white shadow-md transition hover:-translate-y-0.5"
+                disabled={submitting}
+                className="site-btn-shine inline-flex h-13 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-white shadow-md transition hover:-translate-y-0.5 disabled:opacity-60"
                 style={{ background: 'var(--site-accent)' }}
                 data-testid="button-survey-submit"
               >
-                <span>{text(data, ['ctaLabel'], 'إرسال التقييم الآن')}</span>
+                {submitting ? <Loader2 size={18} className="animate-spin" /> : null}
+                <span>{text(data, ['ctaLabel'], 'إرسال وحفظ التقييم الآن')}</span>
                 <ArrowLeft size={18} />
               </button>
             </div>
@@ -1467,13 +2220,14 @@ function SurveyTemplate({ data, siteName, dark, onToggleDark, showBranding }: Te
 // ---------------------------------------------------------------------------
 // RSVP — Dedicated Event Invitation & Attendance Confirmation template
 // ---------------------------------------------------------------------------
-function RsvpTemplate({ data, siteName, dark, onToggleDark, showBranding }: TemplateProps) {
+function RsvpTemplate({ data, siteName, dark, onToggleDark, showBranding, publicId, username }: TemplateProps) {
   const agenda = items(data, ['items', 'services', 'projects']);
   const extras = useSiteExtras(data);
   const [guestName, setGuestName] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
   const [companions, setCompanions] = useState('1');
   const [attending, setAttending] = useState<'yes' | 'no'>('yes');
+  const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
 
   const whatsapp =
@@ -1496,6 +2250,29 @@ function RsvpTemplate({ data, siteName, dark, onToggleDark, showBranding }: Temp
     const statusText = attending === 'yes' ? `مؤكد الحضور (عدد الحضور: ${companions})` : 'معتذر عن الحضور';
     const msg = `تأكيد دعوة: ${siteName}\nالاسم: ${guestName}\nالحالة: ${statusText}${guestPhone ? `\nالجوال: ${guestPhone}` : ''}`;
     return whatsappUrl(whatsapp, msg);
+  };
+
+  const handleRsvpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!guestName.trim()) return;
+    const targetKey = publicId || username;
+    setSubmitting(true);
+    try {
+      if (targetKey) {
+        await submitPublicWebsiteResponse(targetKey, {
+          type: 'rsvp',
+          name: guestName.trim(),
+          phone: guestPhone.trim(),
+          answers: [
+            { question: 'حالة الحضور', answer: attending === 'yes' ? 'مؤكد الحضور' : 'معتذر عن الحضور' },
+            { question: 'عدد المرافقين / المقاعد', answer: attending === 'yes' ? `${companions} أشخاص` : '0' },
+          ],
+        });
+      }
+    } finally {
+      setSubmitting(false);
+      setConfirmed(true);
+    }
   };
 
   return (
@@ -1627,11 +2404,11 @@ function RsvpTemplate({ data, siteName, dark, onToggleDark, showBranding }: Temp
                 <BadgeCheck size={32} />
               </div>
               <h2 className="mt-4 font-serif text-2xl font-bold">
-                {attending === 'yes' ? `أهلاً بك ${guestName} — تم تأكيد حضورك!` : 'شكراً لإبلاغنا، تم تسجيل اعتذارك'}
+                {attending === 'yes' ? `أهلاً بك ${guestName} — تم تسجيل حضورك!` : 'شكراً لإبلاغنا، تم تسجيل اعتذارك'}
               </h2>
               <p className="mt-2 text-sm" style={{ color: 'var(--site-muted)' }}>
                 {attending === 'yes'
-                  ? `عدد المقاعد المحجوزة باسمك: ${companions}`
+                  ? `عدد المقاعد المحجوزة باسمك: ${companions} (تم الحفظ في قائمة الضيوف)`
                   : 'نتطلع للقائك في المناسبات القادمة بإذن الله.'}
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-3">
@@ -1657,14 +2434,7 @@ function RsvpTemplate({ data, siteName, dark, onToggleDark, showBranding }: Temp
               </div>
             </div>
           ) : (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!guestName.trim()) return;
-                setConfirmed(true);
-              }}
-              className="space-y-4"
-            >
+            <form onSubmit={handleRsvpSubmit} className="space-y-4">
               <h2 className="font-serif text-2xl font-bold">نموذج تأكيد الحضور (RSVP)</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <button
@@ -1741,10 +2511,12 @@ function RsvpTemplate({ data, siteName, dark, onToggleDark, showBranding }: Temp
 
               <button
                 type="submit"
-                className="site-btn-shine inline-flex h-13 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-white shadow-md"
+                disabled={submitting}
+                className="site-btn-shine inline-flex h-13 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-white shadow-md disabled:opacity-60"
                 style={{ background: 'var(--site-accent)' }}
                 data-testid="button-rsvp-submit"
               >
+                {submitting ? <Loader2 size={18} className="animate-spin" /> : null}
                 <span>{text(data, ['ctaLabel'], 'إرسال تأكيد الحضور')}</span>
                 <ArrowLeft size={18} />
               </button>
@@ -1761,7 +2533,7 @@ function RsvpTemplate({ data, siteName, dark, onToggleDark, showBranding }: Temp
 // ---------------------------------------------------------------------------
 // INVOICE — Dedicated Service Packages & Interactive Quote Calculator template
 // ---------------------------------------------------------------------------
-function InvoiceTemplate({ data, siteName, dark, onToggleDark, showBranding }: TemplateProps) {
+function InvoiceTemplate({ data, siteName, dark, onToggleDark, showBranding, publicId, username }: TemplateProps) {
   const rawPackages = items(data, ['services', 'items', 'offerings']);
   const extras = useSiteExtras(data);
   const defaultPackages: Json[] = [
@@ -1781,6 +2553,9 @@ function InvoiceTemplate({ data, siteName, dark, onToggleDark, showBranding }: T
   const packages: Json[] = (rawPackages.length > 0 ? rawPackages : defaultPackages) as Json[];
   const [selectedIndices, setSelectedIndices] = useState<number[]>([0]);
   const [clientName, setClientName] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [quoteSubmitted, setQuoteSubmitted] = useState(false);
 
   const togglePackage = (idx: number) => {
     setSelectedIndices((prev) =>
@@ -1807,12 +2582,35 @@ function InvoiceTemplate({ data, siteName, dark, onToggleDark, showBranding }: T
       ? extras.contact.phone
       : '';
 
+  const chosenNames = selectedIndices
+    .map((idx) => text(asObject(packages[idx]), ['name', 'title'], `باقة ${idx + 1}`))
+    .join(' + ');
+
   const quoteHref = () => {
-    const chosenNames = selectedIndices
-      .map((idx) => text(asObject(packages[idx]), ['name', 'title'], `باقة ${idx + 1}`))
-      .join(' + ');
-    const msg = `طلب عرض سعر من ${siteName}\n${clientName ? `العميل: ${clientName}\n` : ''}الباقات المختارة: ${chosenNames || 'استفسار عام'}${totalEstimated > 0 ? `\nالإجمالي التقديري: ${totalEstimated.toLocaleString('ar-SA')} ر.س` : ''}`;
+    const msg = `طلب عرض سعر من ${siteName}\n${clientName ? `العميل: ${clientName}\n` : ''}${clientPhone ? `الجوال: ${clientPhone}\n` : ''}الباقات المختارة: ${chosenNames || 'استفسار عام'}${totalEstimated > 0 ? `\nالإجمالي التقديري: ${totalEstimated.toLocaleString('ar-SA')} ر.س` : ''}`;
     return whatsappUrl(whatsapp, msg);
+  };
+
+  const handleQuoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetKey = publicId || username;
+    setSubmitting(true);
+    try {
+      if (targetKey) {
+        await submitPublicWebsiteResponse(targetKey, {
+          type: 'invoice',
+          name: clientName.trim() || 'طالب عرض سعر',
+          phone: clientPhone.trim(),
+          answers: [
+            { question: 'الباقات المختارة', answer: chosenNames || 'غير محدد' },
+            { question: 'الإجمالي التقديري', answer: totalEstimated > 0 ? `${totalEstimated.toLocaleString('ar-SA')} ر.س` : 'حسب الاتفاق' },
+          ],
+        });
+      }
+    } finally {
+      setSubmitting(false);
+      setQuoteSubmitted(true);
+    }
   };
 
   return (
@@ -1927,44 +2725,84 @@ function InvoiceTemplate({ data, siteName, dark, onToggleDark, showBranding }: T
           className="mt-8 rounded-3xl border p-6 sm:p-8"
           style={{ background: 'var(--site-soft)', borderColor: 'var(--site-border)' }}
         >
-          <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
-            <div>
-              <span className="text-xs font-bold" style={{ color: 'var(--site-accent)' }}>
-                ملخص عرض السعر التفاعلي
-              </span>
-              <h2 className="mt-1 font-serif text-2xl font-bold">
-                عدد الباقات المحددة: {selectedIndices.length}
-              </h2>
-              {totalEstimated > 0 && (
-                <p className="mt-1 font-mono text-xl font-extrabold tabular-nums" style={{ color: 'var(--site-accent)' }}>
-                  الإجمالي التقديري: {totalEstimated.toLocaleString('ar-SA')} ر.س
-                </p>
-              )}
+          {quoteSubmitted ? (
+            <div className="text-center py-3" data-testid="invoice-submitted-card">
+              <h3 className="font-serif text-2xl font-bold">تم إرسال طلب عرض السعر بنجاح!</h3>
+              <p className="mt-1 text-sm" style={{ color: 'var(--site-muted)' }}>
+                تم حفظ الباقات المختارة ({chosenNames}) في لوحة الطلبات.
+              </p>
+              <div className="mt-4 flex flex-wrap justify-center gap-3">
+                {whatsapp && (
+                  <a
+                    href={quoteHref()}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="site-btn-shine inline-flex items-center gap-2 rounded-xl px-6 py-2.5 text-xs font-bold text-white"
+                    style={{ background: 'var(--site-accent)' }}
+                  >
+                    <MessageCircle size={15} /> متابعة العرض عبر واتساب
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setQuoteSubmitted(false)}
+                  className="rounded-xl border px-4 py-2.5 text-xs font-bold"
+                  style={{ borderColor: 'var(--site-border)' }}
+                >
+                  تعديل الباقات
+                </button>
+              </div>
             </div>
+          ) : (
+            <form onSubmit={handleQuoteSubmit} className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
+              <div>
+                <span className="text-xs font-bold" style={{ color: 'var(--site-accent)' }}>
+                  ملخص عرض السعر التفاعلي
+                </span>
+                <h2 className="mt-1 font-serif text-2xl font-bold">
+                  عدد الباقات المحددة: {selectedIndices.length}
+                </h2>
+                {totalEstimated > 0 && (
+                  <p className="mt-1 font-mono text-xl font-extrabold tabular-nums" style={{ color: 'var(--site-accent)' }}>
+                    الإجمالي التقديري: {totalEstimated.toLocaleString('ar-SA')} ر.س
+                  </p>
+                )}
+              </div>
 
-            <div className="flex flex-col gap-3 sm:w-80">
-              <input
-                type="text"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder="اسمك أو اسم الجهة (اختياري)"
-                className="h-11 rounded-xl border px-3.5 text-sm font-medium outline-none"
-                style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
-                data-testid="input-invoice-client"
-              />
-              <a
-                href={quoteHref()}
-                target={whatsapp ? '_blank' : undefined}
-                rel="noreferrer"
-                className="site-btn-shine inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white shadow-md"
-                style={{ background: 'var(--site-accent)' }}
-                data-testid="link-invoice-submit"
-              >
-                <span>{text(data, ['ctaLabel'], 'اعتماد الباقة وطلب عرض السعر')}</span>
-                <ArrowLeft size={17} />
-              </a>
-            </div>
-          </div>
+              <div className="flex flex-col gap-2.5 sm:w-80">
+                <input
+                  type="text"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="اسمك أو اسم الجهة"
+                  className="h-11 rounded-xl border px-3.5 text-sm font-medium outline-none"
+                  style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+                  data-testid="input-invoice-client"
+                />
+                <input
+                  type="tel"
+                  dir="ltr"
+                  value={clientPhone}
+                  onChange={(e) => setClientPhone(e.target.value)}
+                  placeholder="رقم الجوال (05XXXXXXXX)"
+                  className="h-11 rounded-xl border px-3.5 text-left font-mono text-sm font-medium outline-none"
+                  style={{ background: 'var(--site-card)', borderColor: 'var(--site-border)', color: 'var(--site-ink)' }}
+                  data-testid="input-invoice-phone"
+                />
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="site-btn-shine inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-bold text-white shadow-md disabled:opacity-60"
+                  style={{ background: 'var(--site-accent)' }}
+                  data-testid="link-invoice-submit"
+                >
+                  {submitting ? <Loader2 size={16} className="animate-spin" /> : null}
+                  <span>{text(data, ['ctaLabel'], 'اعتماد الباقة وطلب عرض السعر')}</span>
+                  <ArrowLeft size={17} />
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </section>
       <TestimonialsSection testimonials={extras.testimonials} />
@@ -2174,7 +3012,15 @@ export default function PublicWebsite() {
   const template = website.templateId.toLowerCase();
   const templateStyle = text(data, ['templateStyle'], 'classic');
   const modern = templateStyle === 'modern';
-  const props: TemplateProps = { data, siteName: website.siteName, dark, onToggleDark: () => setDarkOverride(!dark), showBranding: website.showBranding !== false };
+  const props: TemplateProps = {
+    data,
+    siteName: website.siteName,
+    dark,
+    onToggleDark: () => setDarkOverride(!dark),
+    showBranding: website.showBranding !== false,
+    publicId: website.publicId,
+    username: website.username,
+  };
 
   // Dedicated single-purpose templates always render their bespoke interface
   if (template.includes('survey') || template.includes('استبيان')) {

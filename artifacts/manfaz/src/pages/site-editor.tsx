@@ -5,21 +5,27 @@ import {
   ArrowRight,
   ArrowUp,
   Award,
+  BarChart3,
   Briefcase,
+  Calendar,
   Check,
   ChevronDown,
+  ClipboardList,
   Clock3,
   ExternalLink,
   HelpCircle,
   ImagePlus,
   LayoutGrid,
   Loader2,
+  MessageCircle,
   Palette,
   Phone,
   Plus,
   Quote,
   RefreshCw,
   Smartphone,
+  Sparkles,
+  Star,
   Trash2,
   Type,
   Users,
@@ -31,14 +37,19 @@ import { Card } from '@/components/account-ui';
 import {
   ApiError,
   compressImage,
+  DEFAULT_SURVEY_QUESTIONS,
+  getActiveSiteUsername,
+  setActiveSiteUsername,
   siteUrl,
   slugifyUsername,
   uploadImage,
+  useAccount,
   useDeleteSite,
   useSaveSite,
   useSiteDocument,
   type SiteDocument,
   type SiteStyle,
+  type SiteSubmission,
 } from '@/lib/account';
 
 type Json = Record<string, unknown>;
@@ -53,7 +64,8 @@ interface Draft {
 interface FieldDef {
   keys: string[];
   label: string;
-  kind?: 'text' | 'textarea' | 'image';
+  kind?: 'text' | 'textarea' | 'image' | 'select';
+  options?: Array<{ value: string; label: string }>;
   placeholder?: string;
   half?: boolean;
 }
@@ -63,6 +75,15 @@ interface CollectionDef {
   singular: string;
   fields: FieldDef[];
 }
+
+const SURVEY_QUESTION_TYPES: Array<{ value: string; label: string }> = [
+  { value: 'choice', label: 'اختيار واحد من متعدد (Single Choice)' },
+  { value: 'multi', label: 'اختيار متعدد (Multiple Checkboxes)' },
+  { value: 'rating', label: 'تقييم بالنجوم 1 إلى 5 (Star Rating)' },
+  { value: 'nps', label: 'مقياس رقمي 1 إلى 10 (NPS Scale)' },
+  { value: 'yesno', label: 'نعم / لا / ربما (Yes / No)' },
+  { value: 'text', label: 'إجابة نصية مفتوحة (Open Text)' },
+];
 
 const NAME: FieldDef = { keys: ['name', 'title'], label: 'الاسم', placeholder: 'مثال: قهوة مختصة' };
 const DESC: FieldDef = {
@@ -134,20 +155,28 @@ const COLLECTIONS: Record<string, CollectionDef> = {
   },
   survey: {
     key: 'items',
-    title: 'أسئلة الاستبيان والتقييم',
+    title: 'أسئلة الاستبيان المتنوعة',
     singular: 'سؤال',
     fields: [
-      { keys: ['name', 'title'], label: 'نص السؤال', placeholder: 'مثال: كيف تقيّم جودة الخدمة؟' },
+      { keys: ['name', 'title'], label: 'نص السؤال *', placeholder: 'مثال: كيف تقيّم جودة الخدمة وسرعة التجاوب؟' },
+      {
+        keys: ['duration', 'type'],
+        label: 'نوع السؤال وطريقة الإجابة',
+        kind: 'select',
+        options: SURVEY_QUESTION_TYPES,
+        half: true,
+      },
       {
         keys: ['category'],
         label: 'خيارات الإجابة (افصل بفاصلة)',
         placeholder: 'ممتاز، جيد جداً، جيد، مقبول',
+        half: true,
       },
       {
         keys: ['description'],
-        label: 'توضيح إضافي (اختياري)',
+        label: 'توضيح إضافي تحت السؤال (اختياري)',
         kind: 'textarea',
-        placeholder: 'وصف مختصر يظهر تحت السؤال',
+        placeholder: 'وصف مختصر يساعد المشارك على الإجابة بدقة',
       },
     ],
   },
@@ -774,6 +803,27 @@ function Repeater({
                           onChange={(url) => update(index, { ...item, image: url })}
                           note={imageNote}
                         />
+                      ) : field.kind === 'select' && field.options ? (
+                        <Field label={field.label}>
+                          <select
+                            value={readField(item, field.keys) || field.options[0]?.value || ''}
+                            onChange={(e) =>
+                              update(index, writeField(item, field.keys, e.target.value))
+                            }
+                            className={inputClass}
+                            style={{
+                              backgroundColor: '#F8FAFC',
+                              borderColor: '#CBD5E1',
+                              color: '#0F172A',
+                            }}
+                          >
+                            {field.options.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
                       ) : (
                         <TextField
                           label={field.label}
@@ -814,6 +864,369 @@ function Repeater({
 }
 
 // ---------------------------------------------------------------------------
+// Results & Submissions Panel (Survey, Booking, RSVP, Package Quotes)
+// ---------------------------------------------------------------------------
+function SubmissionsPanel({
+  templateId,
+  submissions,
+  questions,
+  onDeleteSubmission,
+  onClearSubmissions,
+}: {
+  templateId: string;
+  submissions: SiteSubmission[];
+  questions: Json[];
+  onDeleteSubmission: (id: string) => void;
+  onClearSubmissions: () => void;
+}) {
+  const isSurvey = templateId === 'survey';
+  const isBooking = templateId === 'booking';
+  const isRsvp = templateId === 'rsvp';
+
+  const getSubRating = (s: SiteSubmission): number =>
+    typeof s.rating === 'number' && s.rating > 0
+      ? s.rating
+      : typeof s.overallRating === 'number' && s.overallRating > 0
+      ? s.overallRating
+      : 0;
+
+  const ratedSubmissions = submissions.filter((s) => getSubRating(s) > 0);
+  const avgRating =
+    ratedSubmissions.length > 0
+      ? (
+          ratedSubmissions.reduce((acc, s) => acc + getSubRating(s), 0) /
+          ratedSubmissions.length
+        ).toFixed(1)
+      : '—';
+
+  const typeLabel = isSurvey
+    ? 'ردود الاستبيان وتقييمات العملاء'
+    : isBooking
+    ? 'طلبات حجز المواعيد الواردة'
+    : isRsvp
+    ? 'تأكيدات حضور الفعالية (RSVP)'
+    : 'الردود والطلبات المسجلة من الزوار';
+
+  return (
+    <div className="space-y-5" data-testid="submissions-panel">
+      {/* Summary KPI Cards */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card className="border border-[#CBD5E1] bg-white p-5" style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-[#475569]" style={{ color: '#475569' }}>
+              إجمالي الردود المستلمة
+            </span>
+            <span className="grid size-9 place-items-center rounded-xl bg-[#EFF6FF] text-[#1D4ED8]" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8' }}>
+              <ClipboardList size={18} />
+            </span>
+          </div>
+          <p className="mt-3 font-mono text-3xl font-black text-[#0F172A]" style={{ color: '#0F172A' }} data-testid="text-submissions-count">
+            {submissions.length}
+          </p>
+          <p className="mt-1 text-xs font-bold text-[#059669]" style={{ color: '#059669' }}>
+            ● محفوظة تلقائياً في قاعدة البيانات
+          </p>
+        </Card>
+
+        <Card className="border border-[#CBD5E1] bg-white p-5" style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-[#475569]" style={{ color: '#475569' }}>
+              {isSurvey ? 'متوسط التقييم العام' : isBooking ? 'حجوزات بانتظار التأكيد' : 'آخر تفاعل مستلم'}
+            </span>
+            <span className="grid size-9 place-items-center rounded-xl bg-[#FEF3C7] text-[#D97706]" style={{ backgroundColor: '#FEF3C7', color: '#D97706' }}>
+              <Star size={18} />
+            </span>
+          </div>
+          <p className="mt-3 font-mono text-3xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+            {isSurvey ? `${avgRating} / 5` : submissions.length}
+          </p>
+          <p className="mt-1 text-xs font-medium text-[#475569]" style={{ color: '#475569' }}>
+            {ratedSubmissions.length > 0
+              ? `بناءً على ${ratedSubmissions.length} تقييم`
+              : 'يتم التحديث فور إرسال الزائر'}
+          </p>
+        </Card>
+
+        <Card className="border border-[#CBD5E1] bg-white p-5" style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-[#475569]" style={{ color: '#475569' }}>
+              {isSurvey ? 'عدد الأسئلة النشطة' : 'حالة استقبال الردود'}
+            </span>
+            <span className="grid size-9 place-items-center rounded-xl bg-[#ECFDF5] text-[#059669]" style={{ backgroundColor: '#ECFDF5', color: '#059669' }}>
+              <BarChart3 size={18} />
+            </span>
+          </div>
+          <p className="mt-3 font-mono text-2xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+            {isSurvey ? `${questions.length} أسئلة` : 'نشط ومباشر'}
+          </p>
+          <p className="mt-1 text-xs font-medium text-[#475569]" style={{ color: '#475569' }}>
+            تظهر النتائج هنا فور ضغط الزائر على إرسال
+          </p>
+        </Card>
+      </div>
+
+      {/* Survey Question-by-Question Breakdown */}
+      {isSurvey && submissions.length > 0 && questions.length > 0 && (
+        <Card className="border border-[#CBD5E1] bg-white p-6 space-y-5" style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}>
+          <div>
+            <h3 className="text-base font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+              تحليل نتائج وإحصائيات الأسئلة
+            </h3>
+            <p className="text-xs font-medium text-[#475569]" style={{ color: '#475569' }}>
+              نسبة وتوزيع إجابات المشاركين على كل سؤال في الاستبيان
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {questions.map((q, qIdx) => {
+              const qTitle = readField(q, ['name', 'title']) || `السؤال ${qIdx + 1}`;
+              const counts: Record<string, number> = {};
+              let totalForQ = 0;
+
+              for (const sub of submissions) {
+                const matched = (sub.answers || []).find(
+                  (a) => a.question === qTitle || a.question.includes(qTitle)
+                );
+                if (matched && matched.answer) {
+                  const parts = matched.answer
+                    .split('، ')
+                    .map((p) => p.trim())
+                    .filter(Boolean);
+                  for (const part of parts) {
+                    counts[part] = (counts[part] || 0) + 1;
+                    totalForQ += 1;
+                  }
+                }
+              }
+
+              const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+
+              return (
+                <div
+                  key={qIdx}
+                  className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4"
+                  style={{ backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+                      {qIdx + 1}. {qTitle}
+                    </p>
+                    <span className="rounded-lg bg-white px-2.5 py-1 font-mono text-xs font-bold text-[#1D4ED8] border border-[#CBD5E1]">
+                      {totalForQ} إجابة
+                    </span>
+                  </div>
+
+                  {entries.length === 0 ? (
+                    <p className="mt-2 text-xs font-medium text-[#64748B]">
+                      لا توجد إجابات مسجلة لهذا السؤال بعد.
+                    </p>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      {entries.map(([ans, count]) => {
+                        const pct = totalForQ > 0 ? Math.round((count / totalForQ) * 100) : 0;
+                        return (
+                          <div key={ans} className="space-y-1">
+                            <div className="flex items-center justify-between text-xs font-bold">
+                              <span className="text-[#0F172A]">{ans}</span>
+                              <span className="font-mono text-[#1D4ED8]">
+                                {count} ({pct}%)
+                              </span>
+                            </div>
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-[#E2E8F0]">
+                              <div
+                                className="h-full rounded-full bg-[#1D4ED8]"
+                                style={{ width: `${pct}%`, backgroundColor: '#1D4ED8' }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* Individual Submissions List */}
+      <Card className="border border-[#CBD5E1] bg-white p-6" style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+          <div>
+            <h3 className="text-base font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+              {typeLabel} ({submissions.length})
+            </h3>
+            <p className="text-xs font-medium text-[#475569]" style={{ color: '#475569' }}>
+              تفاصيل كل رد مع وقت الإرسال وبيانات المشارك والعميل
+            </p>
+          </div>
+          {submissions.length > 0 && (
+            <button
+              type="button"
+              onClick={onClearSubmissions}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#FECDD3] bg-[#FFF1F2] px-3 py-2 text-xs font-bold text-[#BE123C] hover:bg-[#FFE4E6]"
+              style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#BE123C' }}
+              data-testid="button-clear-submissions"
+            >
+              <Trash2 size={14} /> مسح الكل وتصفير السجل
+            </button>
+          )}
+        </div>
+
+        {submissions.length === 0 ? (
+          <div className="py-12 text-center" data-testid="submissions-empty">
+            <span
+              className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]"
+              style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+            >
+              <ClipboardList size={24} />
+            </span>
+            <p className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+              لا توجد ردود مسجلة حتى الآن
+            </p>
+            <p className="mx-auto mt-1 max-w-md text-xs font-medium leading-6 text-[#475569]" style={{ color: '#475569' }}>
+              افتح رابط موقعك العام وشارك في الاستبيان أو أرسل طلب حجز، وستظهر جميع الإجابات والإحصائيات هنا تلقائياً.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {submissions.map((sub, idx) => {
+              const subRating = getSubRating(sub);
+              const subService =
+                sub.serviceName ||
+                (typeof sub.details?.service === 'string' ? sub.details.service : '');
+              const subDate =
+                sub.appointmentDate ||
+                (typeof sub.details?.date === 'string' ? sub.details.date : '');
+              const subTime =
+                sub.appointmentTime ||
+                (typeof sub.details?.time === 'string' ? sub.details.time : '');
+              return (
+              <div
+                key={sub.id || idx}
+                className="rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 transition-colors"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}
+                data-testid={`submission-card-${idx}`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#0B132B] font-mono text-xs font-black text-white"
+                      style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
+                    >
+                      #{submissions.length - idx}
+                    </span>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+                          {sub.respondentName || 'زائر بدون اسم'}
+                        </p>
+                        {subRating > 0 && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-lg border border-[#FDE68A] bg-[#FEF3C7] px-2.5 py-0.5 text-xs font-extrabold text-[#B45309]"
+                            style={{ backgroundColor: '#FEF3C7', borderColor: '#FDE68A', color: '#B45309' }}
+                          >
+                            <Star size={12} fill="currentColor" /> {subRating} / 5
+                          </span>
+                        )}
+                        {subService && (
+                          <span
+                            className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-2.5 py-0.5 text-xs font-extrabold text-[#1D4ED8]"
+                            style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
+                          >
+                            {subService}
+                          </span>
+                        )}
+                        {sub.attending && (
+                          <span
+                            className="rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] px-2.5 py-0.5 text-xs font-extrabold text-[#047857]"
+                            style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
+                          >
+                            {sub.attending === 'yes'
+                              ? `مؤكد الحضور (${sub.guests || '1'})`
+                              : 'معتذر عن الحضور'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-[11px] font-bold text-[#64748B]" style={{ color: '#64748B' }}>
+                        {sub.createdAt
+                          ? new Intl.DateTimeFormat('ar-SA', {
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                            }).format(new Date(sub.createdAt))
+                          : ''}
+                        {sub.respondentPhone ? ` · الجوال: ${sub.respondentPhone}` : ''}
+                        {subDate ? ` · التاريخ: ${subDate}` : ''}
+                        {subTime ? ` · الوقت: ${subTime}` : ''}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {sub.respondentPhone && (
+                      <a
+                        href={`https://wa.me/${sub.respondentPhone.replace(/[^\d]/g, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] px-2.5 py-1.5 text-xs font-bold text-[#047857]"
+                        style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
+                      >
+                        <MessageCircle size={13} /> مراسلة واتساب
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onDeleteSubmission(sub.id)}
+                      className="grid size-8 place-items-center rounded-lg border border-[#FECDD3] bg-white text-[#BE123C] hover:bg-[#FFF1F2]"
+                      style={{ backgroundColor: '#FFFFFF', borderColor: '#FECDD3', color: '#BE123C' }}
+                      aria-label="حذف الرد"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Answers Table */}
+                {Array.isArray(sub.answers) && sub.answers.length > 0 && (
+                  <div className="mt-3 grid gap-2 border-t border-[#E2E8F0] pt-3 sm:grid-cols-2">
+                    {sub.answers.map((ans, aIdx) => (
+                      <div
+                        key={aIdx}
+                        className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2"
+                        style={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0' }}
+                      >
+                        <p className="text-[11px] font-bold text-[#64748B]" style={{ color: '#64748B' }}>
+                          {ans.question}
+                        </p>
+                        <p className="mt-0.5 text-xs font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+                          {ans.answer || '—'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {sub.notes && (
+                  <div
+                    className="mt-3 rounded-xl border border-[#CBD5E1] bg-white px-3.5 py-2.5 text-xs"
+                    style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
+                  >
+                    <span className="font-extrabold text-[#475569]">ملاحظات إضافية: </span>
+                    <span className="font-bold text-[#0F172A]">{sub.notes}</span>
+                  </div>
+                )}
+              </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The editor
 // ---------------------------------------------------------------------------
 function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: () => void }) {
@@ -828,6 +1241,15 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
   const [confirmDeleteSite, setConfirmDeleteSite] = useState(false);
+  const [studioTab, setStudioTab] = useState<'editor' | 'results'>(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      if (search.includes('tab=results') || search.includes('tab=submissions')) {
+        return 'results';
+      }
+    }
+    return 'editor';
+  });
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(baseline), [draft, baseline]);
   useEffect(() => {
@@ -857,13 +1279,21 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
       ? text('templateStyle')
       : 'classic'
   ) as SiteStyle;
-  const showsPhotos = initial.imageSupport[style];
+  const showsPhotos = initial.imageSupport?.[style] ?? false;
   const list = asList(structure[collection.key]);
+  const submissions = useMemo<SiteSubmission[]>(() => {
+    if (!Array.isArray(structure.submissions)) return [];
+    return structure.submissions.filter(
+      (item): item is SiteSubmission => Boolean(item && typeof item === 'object')
+    );
+  }, [structure.submissions]);
   const hiddenPhotos =
     !showsPhotos && collection.fields.includes(IMAGE)
       ? list.filter((item) => typeof item.image === 'string' && item.image).length
       : 0;
   const isPortfolio = draft.templateId === 'portfolio';
+  const isBooking = draft.templateId === 'booking';
+  const isSurvey = draft.templateId === 'survey';
   const isSingleLayoutTool = ['booking', 'survey', 'rsvp', 'invoice', 'vcard'].includes(
     draft.templateId
   );
@@ -881,6 +1311,7 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
     setConflict(false);
     save.mutate(
       {
+        id: initial.id,
         baseUpdatedAt: version,
         username: slugifyUsername(draft.username.trim() || draft.siteName.trim()),
         siteName: draft.siteName,
@@ -1030,6 +1461,83 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
         </Card>
       )}
 
+      {/* Studio Mode Tabs: Content Editor vs Results & Submissions */}
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#CBD5E1] bg-white p-2"
+        style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setStudioTab('editor')}
+            className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all sm:text-sm"
+            style={
+              studioTab === 'editor'
+                ? { backgroundColor: '#0B132B', color: '#FFFFFF' }
+                : { backgroundColor: '#F8FAFC', color: '#334155' }
+            }
+            data-testid="tab-studio-editor"
+          >
+            <LayoutGrid size={16} />
+            <span>محرر المحتوى والتصميم</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStudioTab('results')}
+            className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all sm:text-sm"
+            style={
+              studioTab === 'results'
+                ? { backgroundColor: '#1D4ED8', color: '#FFFFFF' }
+                : { backgroundColor: '#EFF6FF', color: '#1D4ED8' }
+            }
+            data-testid="tab-studio-results"
+          >
+            <BarChart3 size={16} />
+            <span>
+              {isSurvey
+                ? 'نتائج الاستبيان والردود'
+                : isBooking
+                ? 'الحجوزات والمواعيد الواردة'
+                : 'النتائج والردود المستلمة'}
+            </span>
+            <span
+              className="rounded-full px-2 py-0.5 font-mono text-xs font-black"
+              style={
+                studioTab === 'results'
+                  ? { backgroundColor: '#FFFFFF', color: '#1D4ED8' }
+                  : { backgroundColor: '#1D4ED8', color: '#FFFFFF' }
+              }
+            >
+              {submissions.length}
+            </span>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={onReload}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 py-2 text-xs font-bold text-[#334155] hover:bg-[#E2E8F0]"
+          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
+          data-testid="button-refresh-submissions"
+        >
+          <RefreshCw size={14} /> تحديث النتائج
+        </button>
+      </div>
+
+      {studioTab === 'results' ? (
+        <SubmissionsPanel
+          templateId={draft.templateId}
+          submissions={submissions}
+          questions={list}
+          onDeleteSubmission={(subId) => {
+            const nextSubs = submissions.filter((s) => s.id !== subId);
+            setKey('submissions', nextSubs);
+          }}
+          onClearSubmissions={() => {
+            setKey('submissions', []);
+          }}
+        />
+      ) : (
       <div className="flex items-start gap-8">
         <fieldset disabled={save.isPending} className="min-w-0 flex-1 space-y-4">
           <Section
@@ -1276,13 +1784,51 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
               </span>
             }
           >
+            {isSurvey && (
+              <div
+                className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] p-3.5"
+                style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }}
+              >
+                <div>
+                  <p className="text-xs font-black text-[#1E3A8A]" style={{ color: '#1E3A8A' }}>
+                    أنواع الأسئلة المتنوعة المتاحة في الاستبيان:
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-bold text-[#1D4ED8]" style={{ color: '#1D4ED8' }}>
+                    اختيار واحد · اختيار متعدد · تقييم بالنجوم (1-5) · مقياس توصية رقمي (1-10) · نعم/لا · سؤال نصي مفتوح
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setKey(collection.key, [
+                      ...list,
+                      ...(DEFAULT_SURVEY_QUESTIONS as unknown as Json[]),
+                    ]);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#1E40AF]"
+                  style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+                  data-testid="button-insert-preset-survey-questions"
+                >
+                  <Sparkles size={14} /> إدراج 5 أسئلة متنوعة جاهزة
+                </button>
+              </div>
+            )}
             <Repeater
               items={list}
               onChange={(next) => setKey(collection.key, next)}
               fields={collection.fields}
               singular={collection.singular}
               titleKeys={collection.fields[0].keys}
-              blank={() => ({ [collection.fields[0].keys[0]]: '' })}
+              blank={() =>
+                isSurvey
+                  ? {
+                      name: '',
+                      duration: 'choice',
+                      category: 'ممتاز، جيد جداً، جيد، مقبول',
+                      description: '',
+                    }
+                  : { [collection.fields[0].keys[0]]: '' }
+              }
               imageNote={imageNote}
             />
           </Section>
@@ -1594,7 +2140,7 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
                   type="button"
                   disabled={deleteSite.isPending}
                   onClick={() => {
-                    deleteSite.mutate(undefined, {
+                    deleteSite.mutate(initial.username, {
                       onSuccess: () => navigate('/dashboard/services'),
                     });
                   }}
@@ -1658,13 +2204,20 @@ function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: ()
           </div>
         </aside>
       </div>
+      )}
     </div>
   );
 }
 
 export default function SiteEditor() {
-  const query = useSiteDocument();
+  const accountQuery = useAccount();
+  const [selectedUsername, setSelectedUsername] = useState<string | undefined>(() =>
+    getActiveSiteUsername()
+  );
+  const query = useSiteDocument(selectedUsername);
   const [epoch, setEpoch] = useState(0);
+
+  const allSites = accountQuery.data?.websites ?? (accountQuery.data?.website ? [accountQuery.data.website] : []);
 
   if (query.isLoading) {
     return (
@@ -1712,12 +2265,58 @@ export default function SiteEditor() {
     );
   }
   return (
-    <EditorForm
-      key={`${query.data.id}:${epoch}`}
-      initial={query.data}
-      onReload={() => {
-        void query.refetch().then(() => setEpoch((value) => value + 1));
-      }}
-    />
+    <div className="space-y-4">
+      {allSites.length > 1 && (
+        <Card
+          className="flex flex-wrap items-center justify-between gap-3 border border-[#CBD5E1] bg-white px-4 py-3"
+          style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
+          data-testid="studio-site-switcher"
+        >
+          <span className="text-xs font-extrabold text-[#0F172A]" style={{ color: '#0F172A' }}>
+            اختر الموقع أو الخدمة للتحرير وعرض النتائج ({allSites.length} مواقع محفوظة):
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {allSites.map((site) => {
+              const active = site.username === query.data.username;
+              return (
+                <button
+                  key={site.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveSiteUsername(site.username);
+                    setSelectedUsername(site.username);
+                    setEpoch((v) => v + 1);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-bold transition-all"
+                  style={
+                    active
+                      ? { backgroundColor: '#0B132B', borderColor: '#0B132B', color: '#FFFFFF' }
+                      : { backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }
+                  }
+                  data-testid={`switch-site-${site.username}`}
+                >
+                  <span>{site.siteName}</span>
+                  {typeof site.submissionsCount === 'number' && site.submissionsCount > 0 && (
+                    <span
+                      className="rounded-full px-1.5 py-0.5 font-mono text-[10px] font-black"
+                      style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+                    >
+                      {site.submissionsCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+      <EditorForm
+        key={`${query.data.id}:${epoch}`}
+        initial={query.data}
+        onReload={() => {
+          void query.refetch().then(() => setEpoch((value) => value + 1));
+        }}
+      />
+    </div>
   );
 }

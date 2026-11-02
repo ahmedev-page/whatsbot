@@ -111,6 +111,32 @@ export async function getLatestWebsite(env: Env, userId: string): Promise<Websit
   return rows[0] ?? null;
 }
 
+export async function listWebsitesForUser(env: Env, userId: string): Promise<WebsiteRow[]> {
+  return await supabaseRequest<WebsiteRow[]>(
+    env,
+    `websites?user_id=eq.${encodeURIComponent(userId)}&select=*&order=updated_at.desc`,
+  );
+}
+
+export async function getWebsiteForUser(
+  env: Env,
+  userId: string,
+  targetIdOrUsername?: string | null,
+): Promise<WebsiteRow | null> {
+  if (!targetIdOrUsername || !targetIdOrUsername.trim()) {
+    return await getLatestWebsite(env, userId);
+  }
+  const clean = targetIdOrUsername.trim();
+  const filter = /^[0-9a-f-]{36}$/i.test(clean)
+    ? `id=eq.${encodeURIComponent(clean)}`
+    : `username=eq.${encodeURIComponent(clean)}`;
+  const rows = await supabaseRequest<WebsiteRow[]>(
+    env,
+    `websites?user_id=eq.${encodeURIComponent(userId)}&${filter}&select=*&limit=1`,
+  );
+  return rows[0] ?? (await getLatestWebsite(env, userId));
+}
+
 export async function getWebsiteByPublicId(
   env: Env,
   publicId: string,
@@ -520,8 +546,8 @@ export async function addConversationMessage(
   userId: string,
   direction: "inbound" | "outbound",
   content: string,
-): Promise<void> {
-  await supabaseRequest(env, "conversation_messages", {
+): Promise<ConversationMessageRow | null> {
+  const rows = await supabaseRequest<ConversationMessageRow[]>(env, "conversation_messages", {
     method: "POST",
     body: JSON.stringify({
       user_id: userId,
@@ -533,6 +559,7 @@ export async function addConversationMessage(
       read_at: direction === "outbound" ? new Date().toISOString() : null,
     }),
   });
+  return rows[0] ?? null;
 }
 
 // Short recent history used purely as Gemini context — unrelated to the

@@ -66,7 +66,7 @@ const GENERAL_STRUCTURE_KEYS = new Set([
   "headline", "title", "heroTitle", "rating", "eyebrow", "quote", "heroQuote", "projectsCount", "stat", "reviewsCount",
   "items", "services", "projects", "hours", "workingHours", "team", "staff", "testimonials", "reviews", "faq", "faqs",
   "products", "featuredProducts", "menu", "menuItems", "offerings", "work", "process", "steps",
-  "contact", "socialLinks", "logo", "heroImage",
+  "contact", "socialLinks", "logo", "heroImage", "submissions",
 ]);
 const PORTFOLIO_ONLY_KEYS = new Set(["skills", "experience", "certifications"]);
 

@@ -17,7 +17,9 @@ import {
   getVisitStats,
   getUnreadMessageCounts,
   getWebsiteByPublicId,
+  getWebsiteForUser,
   listWebsitesForAdmin,
+  listWebsitesForUser,
   markConversationMessagesRead,
   recordVisit,
   supabaseRequest,
@@ -266,6 +268,74 @@ async function handlePublic(request: Request, env: Env, pathname: string): Promi
     if (!website) return json({ error: "Website not found" }, 404);
     await recordVisit(env, website.id);
     return json({ recorded: true });
+  }
+
+  const submissionMatch = pathname.match(/^\/api\/public\/websites\/([^/]+)\/submissions$/);
+  if (submissionMatch && request.method === "POST") {
+    const website = await getWebsiteByPublicId(env, submissionMatch[1]);
+    if (!website) return json({ error: "Website not found" }, 404);
+    const body = await readJson(request);
+    const type = typeof body.type === "string" ? cleanString(body.type).slice(0, 32) : "survey";
+    const respondentName = typeof body.respondentName === "string"
+      ? cleanString(body.respondentName).slice(0, 120)
+      : typeof body.name === "string"
+        ? cleanString(body.name).slice(0, 120)
+        : "";
+    const respondentPhone = typeof body.respondentPhone === "string"
+      ? cleanString(body.respondentPhone).slice(0, 40)
+      : typeof body.phone === "string"
+        ? cleanString(body.phone).slice(0, 40)
+        : "";
+    const rating = typeof body.rating === "number" && Number.isFinite(body.rating)
+      ? Math.max(1, Math.min(10, Math.round(body.rating)))
+      : undefined;
+    const nps = typeof body.nps === "number" && Number.isFinite(body.nps)
+      ? Math.max(0, Math.min(10, Math.round(body.nps)))
+      : undefined;
+    const notes = typeof body.notes === "string" ? cleanString(body.notes).slice(0, 1500) : "";
+    const rawAnswers = Array.isArray(body.answers) ? body.answers.slice(0, 40) : [];
+    const answers = rawAnswers
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+      .map((entry) => ({
+        question: typeof entry.question === "string" ? cleanString(entry.question).slice(0, 300) : "",
+        questionType: typeof entry.questionType === "string" ? cleanString(entry.questionType).slice(0, 32) : "choice",
+        answer: typeof entry.answer === "string" ? cleanString(entry.answer).slice(0, 600) : "",
+      }))
+      .filter((entry) => entry.question);
+    const rawDetails = body.details && typeof body.details === "object" && !Array.isArray(body.details)
+      ? (body.details as Record<string, unknown>)
+      : {};
+    const details: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawDetails).slice(0, 20)) {
+      if (typeof v === "string" || typeof v === "number") {
+        details[cleanString(k).slice(0, 60)] = cleanString(String(v)).slice(0, 300);
+      }
+    }
+
+    const submission = {
+      id: crypto.randomUUID(),
+      type,
+      respondentName,
+      respondentPhone,
+      ...(rating !== undefined ? { rating } : {}),
+      ...(nps !== undefined ? { nps } : {}),
+      answers,
+      details,
+      notes,
+      createdAt: new Date().toISOString(),
+    };
+
+    const existingSubmissions = Array.isArray(website.json_structure?.submissions)
+      ? (website.json_structure.submissions as Array<Record<string, unknown>>)
+      : [];
+    const nextSubmissions = [submission, ...existingSubmissions].slice(0, 200);
+    await updateWebsite(env, website.id, {
+      json_structure: {
+        ...website.json_structure,
+        submissions: nextSubmissions,
+      },
+    });
+    return json({ recorded: true, submission }, 201, { "cache-control": "no-store" });
   }
 
   return json({ error: "Not found" }, 404);
@@ -635,6 +705,9 @@ async function resolveUniqueUsername(
 }
 
 function publicAccountWebsite(website: WebsiteRow, visits: { today: number; total: number }) {
+  const submissionsCount = Array.isArray(website.json_structure?.submissions)
+    ? website.json_structure.submissions.length
+    : 0;
   return {
     id: website.id,
     username: website.username,
@@ -648,7 +721,18 @@ function publicAccountWebsite(website: WebsiteRow, visits: { today: number; tota
     updatedAt: website.updated_at,
     visitsToday: visits.today,
     visitsTotal: visits.total,
+    submissionsCount,
   };
+}
+
+async function listPublicAccountWebsites(env: Env, userId: string) {
+  const rows = await listWebsitesForUser(env, userId);
+  return await Promise.all(
+    rows.map(async (w) => {
+      const visits = await getVisitStats(env, w.id).catch(() => ({ today: 0, total: 0 }));
+      return publicAccountWebsite(w, visits);
+    }),
+  );
 }
 
 function fullAccountWebsite(website: WebsiteRow) {
@@ -717,8 +801,7 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (user && deviceId) {
       await addTrustedDeviceForUser(env, user, deviceId);
     }
-    const website = user ? await getLatestWebsite(env, user.id) : null;
-    const visits = website ? await getVisitStats(env, website.id) : { today: 0, total: 0 };
+    const websites = user ? await listPublicAccountWebsites(env, user.id) : [];
     return json(
       {
         status: "authenticated",
@@ -730,7 +813,8 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
               freeMessagesUsed: user.free_messages_used,
               freeMessagesLimit: user.free_messages_limit,
               createdAt: user.created_at,
-              website: website ? publicAccountWebsite(website, visits) : null,
+              website: websites[0] ?? null,
+              websites,
             }
           : undefined,
       },
@@ -765,8 +849,7 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
       return json({ error: "Device not verified for this phone" }, 401);
     }
     const sessionToken = await createUserSessionToken(env.SESSION_SECRET, user.id);
-    const website = await getLatestWebsite(env, user.id);
-    const visits = website ? await getVisitStats(env, website.id) : { today: 0, total: 0 };
+    const websites = await listPublicAccountWebsites(env, user.id);
     return json(
       {
         status: "authenticated",
@@ -777,7 +860,8 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
           freeMessagesUsed: user.free_messages_used,
           freeMessagesLimit: user.free_messages_limit,
           createdAt: user.created_at,
-          website: website ? publicAccountWebsite(website, visits) : null,
+          website: websites[0] ?? null,
+          websites,
         },
       },
       200,
@@ -798,8 +882,7 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
     const user = await getUserById(env, userId);
     if (!user) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
-    const website = await getLatestWebsite(env, user.id);
-    const visits = website ? await getVisitStats(env, website.id) : { today: 0, total: 0 };
+    const websites = await listPublicAccountWebsites(env, user.id);
     return json(
       {
         id: user.id,
@@ -807,7 +890,8 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
         freeMessagesUsed: user.free_messages_used,
         freeMessagesLimit: user.free_messages_limit,
         createdAt: user.created_at,
-        website: website ? publicAccountWebsite(website, visits) : null,
+        website: websites[0] ?? null,
+        websites,
       },
       200,
       { "cache-control": "no-store" },
@@ -840,22 +924,10 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if ("templateStyle" in clean && !(STYLES as readonly string[]).includes(String(clean.templateStyle))) delete clean.templateStyle;
     if ("darkMode" in clean) clean.darkMode = clean.darkMode === true;
 
-    const existing = await getLatestWebsite(env, userId);
     const desiredSlug = typeof body.username === "string" && body.username.trim() ? body.username.trim() : siteName;
-    const uniqueUsername = await resolveUniqueUsername(env, desiredSlug, existing?.id);
+    const uniqueUsername = await resolveUniqueUsername(env, desiredSlug);
 
-    if (existing) {
-      const updated = await updateWebsite(env, existing.id, {
-        username: uniqueUsername,
-        site_name: siteName,
-        template_id: templateId,
-        theme_color: themeColor,
-        json_structure: clean,
-        show_branding: showBranding,
-      });
-      return json(fullAccountWebsite(updated), 200, { "cache-control": "no-store" });
-    }
-
+    // Always create a new website row so existing websites are never overwritten!
     const created = await createWebsite(env, {
       user_id: userId,
       username: uniqueUsername,
@@ -872,7 +944,9 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
     const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
     if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
-    const website = await getLatestWebsite(env, userId);
+    const reqUrl = new URL(request.url);
+    const targetParam = reqUrl.searchParams.get("id") || reqUrl.searchParams.get("username");
+    const website = await getWebsiteForUser(env, userId, targetParam);
     if (!website) return json({ error: "No website yet" }, 404, { "cache-control": "no-store" });
     await deleteWebsite(env, website.id);
     return json({ deleted: true }, 200, { "cache-control": "no-store" });
@@ -881,12 +955,19 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
   if (pathname === "/api/me/website" && (request.method === "GET" || request.method === "PATCH")) {
     const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
     if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
-    const website = await getLatestWebsite(env, userId);
-    if (!website) return json({ error: "No website yet" }, 404, { "cache-control": "no-store" });
-    if (request.method === "GET") return json(fullAccountWebsite(website), 200, { "cache-control": "no-store" });
+    const reqUrl = new URL(request.url);
+    const targetQuery = reqUrl.searchParams.get("id") || reqUrl.searchParams.get("username");
+    if (request.method === "GET") {
+      const website = await getWebsiteForUser(env, userId, targetQuery);
+      if (!website) return json({ error: "No website yet" }, 404, { "cache-control": "no-store" });
+      return json(fullAccountWebsite(website), 200, { "cache-control": "no-store" });
+    }
 
     if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
     const body = await readJson(request);
+    const targetBody = typeof body.id === "string" && body.id.trim() ? body.id.trim() : targetQuery;
+    const website = await getWebsiteForUser(env, userId, targetBody);
+    if (!website) return json({ error: "No website yet" }, 404, { "cache-control": "no-store" });
     const baseUpdatedAt = typeof body.baseUpdatedAt === "string" ? body.baseUpdatedAt : "";
     if (!baseUpdatedAt) return json({ error: "baseUpdatedAt is required" }, 400);
 
