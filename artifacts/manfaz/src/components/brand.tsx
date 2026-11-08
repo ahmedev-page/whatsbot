@@ -14,7 +14,7 @@ export function Brand({
     <>
       <span
         style={{
-          background: dark
+          backgroundImage: dark
             ? 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)'
             : 'linear-gradient(135deg, #0B132B 0%, #1D4ED8 100%)',
           backgroundColor: dark ? '#0F172A' : '#0B132B',

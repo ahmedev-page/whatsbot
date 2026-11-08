@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   BOT_PILLARS,
   PLATFORM_SERVICES,
+  SERVICE_GROUPS,
+  STUDIO_PRESETS,
   filterServicesByCategory,
   resolveStudioPreviewState,
 } from '../landing-data.ts';
@@ -72,6 +74,19 @@ describe('landing-data pure logic', () => {
         false,
         `Service ${service.id} must not use pale yellow accentTo ${service.accentTo}`,
       );
+    }
+  });
+
+  it('maps every template in SERVICE_GROUPS to a dedicated STUDIO_PRESETS entry without fallback', () => {
+    const allItems = SERVICE_GROUPS.flatMap((g) => g.items);
+    assert.equal(allItems.length, 9);
+    for (const item of allItems) {
+      assert.ok(
+        item.templateId in STUDIO_PRESETS,
+        `Template ${item.templateId} must exist in STUDIO_PRESETS`,
+      );
+      const resolved = resolveStudioPreviewState(item.templateId, '', '#2563EB', 'cinematic');
+      assert.equal(resolved.preset.id, item.templateId);
     }
   });
 });

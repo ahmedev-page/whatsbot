@@ -1,4 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  getConversationalServiceOption,
+  resolveMultiServiceCommand,
+  type MultiServiceCommandResolution,
+  type PendingAssistantDisambiguation,
+} from '@/lib/conversational-creator';
 
 // Platform-account API (sign-in via WhatsApp verification, "who am I", sign
 // out). Hand-written rather than orval-generated: these endpoints are
@@ -884,7 +890,11 @@ async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T>
       const body = (await response.json().catch(() => ({}))) as { error?: string };
       throw new ApiError(response.status, body.error || `Request failed (${response.status})`);
     }
-    return (await response.json()) as T;
+    const parsed = (await response.json()) as Record<string, unknown>;
+    if (parsed && parsed.standalone === true) {
+      throw new ApiError(502, 'Backend API in standalone mode');
+    }
+    return parsed as unknown as T;
   } catch (err) {
     // When offline, cross-origin cookies blocked, or backend endpoint unavailable:
     if (path === '/api/me' && method === 'GET') {
@@ -1181,7 +1191,10 @@ export function useSaveSite() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: SaveSiteInput) => {
-      const current = getLocalSiteDocument();
+      const current =
+        (input.username ? getLocalSiteDocument(input.username) : null) ||
+        (input.id ? getLocalSiteDocument(input.id) : null) ||
+        getLocalSiteDocument();
       try {
         const res = await accountFetch<SiteDocument & { droppedFields: string[] }>('/api/me/website', {
           method: 'PATCH',
@@ -1282,10 +1295,180 @@ export function useAccountMessages() {
   });
 }
 
+export function applyAssistantResolutionToLocalSite(
+  targetUsername: string,
+  resolution: MultiServiceCommandResolution
+): { reply: string; website: SiteDocument | null } {
+  const account = getLocalAccount();
+  const doc = getLocalSiteDocument(targetUsername);
+  if (!doc) {
+    return { reply: resolution.botReply, website: null };
+  }
+
+  const serviceOpt = getConversationalServiceOption(doc.templateId);
+  const serviceBadge = `«${doc.siteName}» (${serviceOpt.shortLabel})`;
+  let updatedDoc: SiteDocument = doc;
+  let reply = resolution.botReply;
+
+  if (resolution.intent === 'change_hours' && resolution.extractedValue) {
+    const nextHours = [{ day: 'أوقات العمل', time: resolution.extractedValue }];
+    updatedDoc = {
+      ...doc,
+      jsonStructure: { ...doc.jsonStructure, hours: nextHours },
+      updatedAt: new Date().toISOString(),
+    };
+    saveLocalSiteDocument(updatedDoc);
+    reply = `⏰ تم تحديث أوقات العمل لخدمة ${serviceBadge} بنجاح إلى: ${resolution.extractedValue}`;
+  } else if (resolution.intent === 'add_item' && resolution.extractedItem?.name) {
+    const colKey = doc.collectionKey || getCollectionKeyForTemplate(doc.templateId);
+    const existingList = Array.isArray(doc.jsonStructure?.[colKey])
+      ? [...(doc.jsonStructure[colKey] as Array<Record<string, unknown>>)]
+      : [];
+    const itemName = resolution.extractedItem.name.trim();
+    const itemPrice = resolution.extractedItem.price?.trim() || '';
+    const newItem: Record<string, unknown> =
+      doc.templateId === 'portfolio'
+        ? { title: itemName, description: '' }
+        : {
+            name: itemName,
+            ...(itemPrice ? { price: itemPrice } : {}),
+            ...(doc.templateId === 'survey' ? { duration: 'rating' } : {}),
+            description: '',
+          };
+    existingList.push(newItem);
+    updatedDoc = {
+      ...doc,
+      jsonStructure: { ...doc.jsonStructure, [colKey]: existingList },
+      updatedAt: new Date().toISOString(),
+    };
+    saveLocalSiteDocument(updatedDoc);
+    reply = `✅ تم حفظ «${itemName}»${itemPrice ? ` (${itemPrice})` : ''} في خدمة ${serviceBadge} بنجاح!`;
+  } else if (resolution.intent === 'update_description' && resolution.extractedValue) {
+    const newDesc = resolution.extractedValue.trim();
+    updatedDoc = {
+      ...doc,
+      jsonStructure: {
+        ...doc.jsonStructure,
+        description: newDesc,
+        tagline: newDesc.slice(0, 120),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    saveLocalSiteDocument(updatedDoc);
+    reply = `✨ تم تحديث الوصف والنبذة لخدمة ${serviceBadge} بنجاح.`;
+  } else if (
+    resolution.intent === 'change_color' &&
+    (resolution.extractedColor || typeof resolution.extractedDarkMode === 'boolean')
+  ) {
+    updatedDoc = {
+      ...doc,
+      themeColor: resolution.extractedColor || doc.themeColor,
+      jsonStructure: {
+        ...doc.jsonStructure,
+        ...(typeof resolution.extractedDarkMode === 'boolean'
+          ? { darkMode: resolution.extractedDarkMode }
+          : {}),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    saveLocalSiteDocument(updatedDoc);
+  } else if (resolution.intent === 'change_template' && resolution.extractedStyle) {
+    updatedDoc = {
+      ...doc,
+      jsonStructure: {
+        ...doc.jsonStructure,
+        templateStyle: resolution.extractedStyle,
+        ...(resolution.extractedStyle === 'cinematic' ? { darkMode: true } : {}),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    saveLocalSiteDocument(updatedDoc);
+  } else if (resolution.intent === 'change_contact' && resolution.extractedValue) {
+    const prevContact = (doc.jsonStructure?.contact as Record<string, unknown>) || {};
+    updatedDoc = {
+      ...doc,
+      jsonStructure: {
+        ...doc.jsonStructure,
+        contact: {
+          ...prevContact,
+          phone: resolution.extractedValue,
+          whatsapp: resolution.extractedValue,
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    saveLocalSiteDocument(updatedDoc);
+  } else if (resolution.intent === 'query_stats') {
+    const colKey = doc.collectionKey || getCollectionKeyForTemplate(doc.templateId);
+    const listCount = Array.isArray(doc.jsonStructure?.[colKey])
+      ? (doc.jsonStructure[colKey] as unknown[]).length
+      : 0;
+    const subsCount = Array.isArray(doc.jsonStructure?.submissions)
+      ? (doc.jsonStructure.submissions as unknown[]).length
+      : 0;
+    const siteSummary = account?.websites?.find((w) => w.username === doc.username);
+    const today = siteSummary?.visitsToday ?? 0;
+    const total = siteSummary?.visitsTotal ?? 0;
+    const remaining = Math.max(
+      0,
+      (account?.freeMessagesLimit ?? 40) - (account?.freeMessagesUsed ?? 0)
+    );
+    reply = `📊 إحصائيات خدمة ${serviceBadge}:\n• زيارات اليوم: ${today} زيارة\n• إجمالي الزيارات الكلي: ${total} زيارة\n• عدد العناصر المنشورة: ${listCount}\n• الردود والطلبات المسجلة: ${subsCount}\n• الرصيد المتبقي من رسائل المساعد: ${remaining} رسالة.`;
+  }
+
+  return { reply, website: updatedDoc };
+}
+
+export interface SendAssistantCommandInput {
+  message: string;
+  targetUsername?: string;
+  pendingContext?: PendingAssistantDisambiguation;
+}
+
 export function useSendAssistantCommand() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (message: string) => {
+    mutationFn: async (input: string | SendAssistantCommandInput) => {
+      const message = typeof input === 'string' ? input : input.message;
+      const explicitTargetUsername = typeof input === 'string' ? undefined : input.targetUsername;
+      const pendingContext = typeof input === 'string' ? undefined : input.pendingContext;
+
+      const account = getLocalAccount();
+      const allLocalDocs = getAllLocalSiteDocuments();
+      const allServices =
+        account?.websites && account.websites.length > 0
+          ? account.websites
+          : allLocalDocs.map((d) => toAccountWebsiteSummary(d));
+
+      // If user has multiple services and no explicit targetUsername was locked in,
+      // resolve target service or trigger disambiguation before modifying anything!
+      const candidatePool = explicitTargetUsername
+        ? allServices.filter((s) => s.username === explicitTargetUsername)
+        : allServices;
+
+      const resolution = resolveMultiServiceCommand(
+        message,
+        candidatePool.length > 0 ? candidatePool : allServices,
+        pendingContext
+      );
+
+      if (
+        resolution.status === 'needs_disambiguation' ||
+        resolution.status === 'create_new_service' ||
+        resolution.status === 'no_services' ||
+        resolution.status === 'not_found'
+      ) {
+        return {
+          reply: resolution.botReply,
+          message: null,
+          website: null,
+          resolution,
+        };
+      }
+
+      const resolvedUsername =
+        resolution.targetService?.username || explicitTargetUsername || allServices[0]?.username;
+
       try {
         const res = await accountFetch<{
           reply: string;
@@ -1293,114 +1476,37 @@ export function useSendAssistantCommand() {
           website: SiteDocument | null;
         }>('/api/me/assistant', {
           method: 'POST',
-          body: JSON.stringify({ message }),
+          body: JSON.stringify({
+            message,
+            ...(resolvedUsername ? { username: resolvedUsername } : {}),
+          }),
         });
         if (res.website) {
           saveLocalSiteDocument(res.website);
         }
-        return res;
+        return { ...res, resolution };
       } catch {
-        // Local execution fallback when offline or previewing without Worker
-        const account = getLocalAccount();
-        const doc = getLocalSiteDocument();
-        let reply = '';
-        let updatedDoc = doc;
-
-        if (message.includes('زائر') || message.includes('إحصائيات') || message.includes('زيارات')) {
-          if (!doc) {
-            reply = 'لم تقم بإنشاء موقع بعد. أنشئ موقعك أولاً من قسم «خدماتي وموقعي» لبدء تتبع الزيارات الفعلية.';
-          } else {
-            const colKey = doc.collectionKey || 'items';
-            const list = Array.isArray(doc.jsonStructure?.[colKey])
-              ? (doc.jsonStructure[colKey] as unknown[]).length
-              : 0;
-            const today = account?.website?.visitsToday ?? 0;
-            const total = account?.website?.visitsTotal ?? 0;
-            const remaining = Math.max(
-              0,
-              (account?.freeMessagesLimit ?? 40) - (account?.freeMessagesUsed ?? 0)
-            );
-            reply = `📊 إحصائيات موقعك «${doc.siteName}»:\n• زيارات اليوم: ${today} زيارة\n• إجمالي الزيارات الكلي: ${total} زيارة\n• عدد العناصر المنشورة حالياً: ${list}\n• الرصيد المتبقي من رسائل المساعد: ${remaining} رسالة.`;
-          }
-        } else if (
-          doc &&
-          (message.startsWith('أضف ') ||
-            message.startsWith('اضف ') ||
-            message.includes('أضف طبق') ||
-            message.includes('أضف منتج') ||
-            message.includes('أضف خدمة'))
-        ) {
-          const colKey = doc.collectionKey || 'items';
-          const existingList = Array.isArray(doc.jsonStructure?.[colKey])
-            ? [...(doc.jsonStructure[colKey] as Array<Record<string, unknown>>)]
-            : [];
-          const cleanedText = message
-            .replace(/^(أضف|اضف)\s*(طبق اليوم|طبق|منتج|خدمة|مشروع)?\s*:?\s*/i, '')
-            .trim();
-          const priceMatch = cleanedText.match(/(\d+(?:\.\d+)?\s*(?:ر\.س|ريال|SAR|\$)?)$/i);
-          const itemName = priceMatch
-            ? cleanedText.slice(0, priceMatch.index).trim() || cleanedText
-            : cleanedText;
-          const itemPrice = priceMatch ? priceMatch[1].trim() : undefined;
-          const newItem: Record<string, unknown> =
-            doc.templateId === 'portfolio'
-              ? { title: itemName, description: '' }
-              : { name: itemName, ...(itemPrice ? { price: itemPrice } : {}), description: '' };
-          existingList.push(newItem);
-          updatedDoc = {
-            ...doc,
-            jsonStructure: { ...doc.jsonStructure, [colKey]: existingList },
-            updatedAt: new Date().toISOString(),
+        if (!resolvedUsername) {
+          return {
+            reply: resolution.botReply,
+            message: null,
+            website: null,
+            resolution,
           };
-          saveLocalSiteDocument(updatedDoc);
-          reply = `✅ تم حفظ «${itemName}»${itemPrice ? ` (${itemPrice})` : ''} في موقعك «${doc.siteName}» بنجاح!`;
-        } else if (
-          doc &&
-          (message.includes('أوقات العمل') || message.includes('ساعات العمل') || message.includes('الدوام'))
-        ) {
-          const hoursText = message
-            .replace(/^.*?(أوقات العمل الجديدة|أوقات العمل|ساعات العمل|الدوام)\s*:?\s*/i, '')
-            .trim();
-          const nextHours = [{ day: 'أوقات العمل', time: hoursText || message }];
-          updatedDoc = {
-            ...doc,
-            jsonStructure: { ...doc.jsonStructure, hours: nextHours },
-            updatedAt: new Date().toISOString(),
-          };
-          saveLocalSiteDocument(updatedDoc);
-          reply = `⏰ تم تحديث ساعات العمل لموقعك «${doc.siteName}» إلى: ${hoursText || message}`;
-        } else if (
-          doc &&
-          (message.startsWith('وصف:') || message.startsWith('نبذة:') || message.startsWith('العنوان:'))
-        ) {
-          const newDesc = message.replace(/^(وصف|نبذة|العنوان)\s*:\s*/i, '').trim();
-          updatedDoc = {
-            ...doc,
-            jsonStructure: {
-              ...doc.jsonStructure,
-              description: newDesc,
-              tagline: newDesc.slice(0, 120),
-            },
-            updatedAt: new Date().toISOString(),
-          };
-          saveLocalSiteDocument(updatedDoc);
-          reply = `✨ تم تحديث وصف موقعك «${doc.siteName}» بنجاح.`;
-        } else {
-          reply = doc
-            ? `مرحباً بك! موقعك المتصل هو «${doc.siteName}».\nيمكنك إرسال أوامر مباشرة مثل:\n• "كم زائر اليوم؟" لعرض الزيارات الحقيقية\n• "أضف منتج: قهوة مختصة 25 ر.س" لإضافة عنصر فوراً\n• "أوقات العمل: 9 صباحاً - 11 مساءً" لتحديث ساعات الدوام\n• "وصف: نص الوصف الجديد" لتحديث نبذة الموقع.`
-            : 'مرحباً بك! أنشئ موقعك أولاً من قسم «خدماتي وموقعي»، وبعدها يمكنك استخدام المساعد السريع لإضافة المنتجات، تحديث ساعات العمل، أو الاستعلام عن الزيارات الحقيقية.';
         }
-
+        const applied = applyAssistantResolutionToLocalSite(resolvedUsername, resolution);
         return {
-          reply,
+          reply: applied.reply,
           message: null,
-          website: updatedDoc,
+          website: applied.website,
+          resolution,
         };
       }
     },
     onSuccess: (res) => {
       if (res.website) {
         queryClient.setQueryData(siteQueryKey, res.website);
+        queryClient.setQueryData([...siteQueryKey, res.website.username], res.website);
         const updatedAccount = getLocalAccount();
         if (updatedAccount) {
           queryClient.setQueryData(accountQueryKey, updatedAccount);

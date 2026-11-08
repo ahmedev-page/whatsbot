@@ -25,10 +25,28 @@ createRoot(document.getElementById('root')!, {
 // Registered after load so it never competes with the initial render for
 // bandwidth/CPU. import.meta.env.BASE_URL (not a hardcoded "/") so this still
 // resolves correctly wherever BASE_PATH places the build.
+if (typeof window !== 'undefined' && 'caches' in window) {
+  caches
+    .keys()
+    .then((keys) =>
+      Promise.all(
+        keys
+          .filter((key) => key !== 'orxai-assets-v4')
+          .map((key) => caches.delete(key)),
+      ),
+    )
+    .catch(() => undefined);
+}
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((error) => {
-      console.error('Service worker registration failed', error);
-    });
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`)
+      .then((reg) => {
+        reg.update().catch(() => undefined);
+      })
+      .catch((error) => {
+        console.error('Service worker registration failed', error);
+      });
   });
 }

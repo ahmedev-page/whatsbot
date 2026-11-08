@@ -126,7 +126,7 @@ function Login() {
       dir="rtl"
       className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[#060B18] px-5 py-10 font-sans text-white"
       style={{
-        background: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
+        backgroundImage: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
         backgroundColor: '#060B18',
         color: '#FFFFFF',
       }}
@@ -401,7 +401,7 @@ function Overview({
         <section
           className="rounded-2xl border border-[#1E293B] bg-[#0B132B] p-6 text-white"
           style={{
-            background: 'linear-gradient(155deg, #060B18 0%, #0B132B 100%)',
+            backgroundImage: 'linear-gradient(155deg, #060B18 0%, #0B132B 100%)',
             backgroundColor: '#0B132B',
             borderColor: '#1E293B',
             color: '#FFFFFF',
@@ -1346,7 +1346,7 @@ export default function Admin() {
           mobileNav ? 'translate-x-0' : 'translate-x-full'
         }`}
         style={{
-          background: 'linear-gradient(180deg, #060B18 0%, #0B132B 100%)',
+          backgroundImage: 'linear-gradient(180deg, #060B18 0%, #0B132B 100%)',
           backgroundColor: '#0B132B',
           borderColor: '#1E293B',
           color: '#FFFFFF',

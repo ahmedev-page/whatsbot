@@ -19,13 +19,13 @@ export function BrandSplash({ show }: { show: boolean }) {
           aria-hidden
           className="absolute inset-0 -m-16 rounded-full blur-2xl [animation:orxai-glow-pulse_2.4s_ease-in-out_infinite]"
           style={{
-            background: 'radial-gradient(circle at center, rgba(37, 99, 235, 0.28), transparent 70%)',
+            backgroundImage: 'radial-gradient(circle at center, rgba(37, 99, 235, 0.28), transparent 70%)',
           }}
         />
         <div
           className="relative grid size-20 place-items-center rounded-2xl border border-[#1E3A8A]"
           style={{
-            background: 'linear-gradient(135deg, #1D4ED8 0%, #0B132B 100%)',
+            backgroundImage: 'linear-gradient(135deg, #1D4ED8 0%, #0B132B 100%)',
             borderColor: '#3B82F6',
           }}
         >

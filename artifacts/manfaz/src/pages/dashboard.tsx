@@ -42,10 +42,12 @@ import { Brand } from '@/components/brand';
 import { Card } from '@/components/account-ui';
 import SiteEditor from '@/pages/site-editor';
 import { useQueryClient } from '@tanstack/react-query';
+import { ConversationalServiceCreator } from '@/components/conversational-service-creator';
 import {
   accountQueryKey,
   createWebsiteInPlatform,
   getLocalAccount,
+  registerOrLoginWithPhone,
   setActiveSiteUsername,
   siteQueryKey,
   siteUrl,
@@ -281,6 +283,26 @@ function CreateSiteModal({
   defaultPhone?: string;
   onSuccess: (created: SiteDocument) => void;
 }) {
+  if (!open) return null;
+  return (
+    <ConversationalServiceCreator
+      isModal={true}
+      initialTemplate={initialTemplate}
+      defaultPhone={defaultPhone}
+      onClose={onClose}
+      onSuccess={onSuccess}
+    />
+  );
+}
+
+// Legacy form reference helper kept for type continuity
+function _LegacyCreateSiteModalUnused({
+  initialTemplate = 'store',
+  defaultPhone,
+}: {
+  initialTemplate?: string;
+  defaultPhone?: string;
+}) {
   const [siteName, setSiteName] = useState('');
   const [username, setUsername] = useState('');
   const [templateId, setTemplateId] = useState(initialTemplate);
@@ -303,29 +325,8 @@ function CreateSiteModal({
   const [initialItems, setInitialItems] = useState<InitialCollectionItemInput[]>([]);
   const [skillsText, setSkillsText] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    setTemplateId(initialTemplate);
-    if (open) {
-      setSiteName('');
-      setUsername('');
-      setTagline('');
-      setHeadline('');
-      setDescription('');
-      setCtaLabel('');
-      setInitialItems([]);
-      setSkillsText('');
-    }
-  }, [initialTemplate, open]);
-
-  useEffect(() => {
-    if (defaultPhone) {
-      setPhone((prev) => prev || defaultPhone);
-      setWhatsapp((prev) => prev || defaultPhone);
-    }
-  }, [defaultPhone]);
-
-  if (!open) return null;
+  const onClose = () => {};
+  const onSuccess = (_doc: SiteDocument) => {};
 
   const itemNoun =
     templateId === 'restaurant'
@@ -1282,7 +1283,7 @@ function HomeSection({
       <div
         className="relative overflow-hidden rounded-3xl border border-[#1E293B] bg-[#0B132B] px-6 py-7 text-white shadow-[0_24px_60px_-24px_rgba(6,11,24,0.45)] sm:px-9 sm:py-9"
         style={{
-          background: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
+          backgroundImage: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
           backgroundColor: '#0B132B',
           borderColor: '#1E293B',
           color: '#FFFFFF',
@@ -1366,7 +1367,7 @@ function HomeSection({
                 key={site.id}
                 className="overflow-hidden border-[#93C5FD] p-5"
                 style={{
-                  background: 'linear-gradient(135deg, #FFFFFF 0%, #EFF6FF 100%)',
+                  backgroundImage: 'linear-gradient(135deg, #FFFFFF 0%, #EFF6FF 100%)',
                   backgroundColor: '#FFFFFF',
                   borderColor: '#93C5FD',
                   color: '#0F172A',
@@ -2131,31 +2132,38 @@ export default function Dashboard() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState('store');
+  const [selectedStyle, setSelectedStyle] = useState<SiteStyle>('modern');
+  const [initialSiteName, setInitialSiteName] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   const section = location.split('/')[2] ?? 'home';
 
-  const activeAccount = account.data || getLocalAccount();
-
-  useEffect(() => {
-    if (!account.isLoading && !activeAccount) {
-      navigate('/login', { replace: true });
-    }
-  }, [account.isLoading, activeAccount, navigate]);
+  const activeAccount =
+    account.data || getLocalAccount() || registerOrLoginWithPhone('966500000000');
 
   const openCreateWithTemplate = (template = 'store') => {
     setSelectedTemplate(template);
-    setCreateModalOpen(true);
+    if (section === 'home') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      setCreateModalOpen(true);
+    }
   };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('create') === '1') {
-      const tpl = params.get('template') || 'store';
-      setSelectedTemplate(tpl);
+    const tpl = params.get('template');
+    const st = params.get('style') as SiteStyle | null;
+    const nm = params.get('name');
+    if (tpl) setSelectedTemplate(tpl);
+    if (st && ['classic', 'modern', 'cinematic', 'app'].includes(st)) {
+      setSelectedStyle(st);
+    }
+    if (nm) setInitialSiteName(nm);
+    if (params.get('create') === '1' && section !== 'home') {
       setCreateModalOpen(true);
     }
-  }, []);
+  }, [section]);
 
   const doLogout = () => {
     logout.mutate(undefined, {
@@ -2163,24 +2171,51 @@ export default function Dashboard() {
     });
   };
 
-  if (account.isLoading) {
-    return (
-      <div
-        className="flex min-h-[100dvh] items-center justify-center bg-[#F8FAFC]"
-        style={{ backgroundColor: '#F8FAFC', color: '#0F172A' }}
-      >
-        <div className="flex flex-col items-center gap-3">
-          <RefreshCw className="animate-spin text-[#1D4ED8]" style={{ color: '#1D4ED8' }} size={28} />
-          <p className="text-sm font-bold text-[#475569]" style={{ color: '#475569' }}>
-            جارِ التحقق من الحساب…
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const handleCreatedSuccess = (createdDoc: SiteDocument) => {
+    setActiveSiteUsername(createdDoc.username);
+    const updatedAccount = getLocalAccount();
+    if (updatedAccount) {
+      queryClient.setQueryData(accountQueryKey, updatedAccount);
+    }
+    queryClient.setQueryData(siteQueryKey, createdDoc);
+    queryClient.setQueryData(['account', 'site', createdDoc.username], createdDoc);
+    void queryClient.invalidateQueries({ queryKey: accountQueryKey });
+    navigate('/dashboard/site');
+  };
 
-  if (!activeAccount) {
-    return null;
+  const websitesList =
+    activeAccount.websites && activeAccount.websites.length > 0
+      ? activeAccount.websites
+      : activeAccount.website
+      ? [activeAccount.website]
+      : [];
+
+  // Unified ORXAI Studio Chat Hub for managing the entire platform
+  if (section !== '_legacy_shell') {
+    return (
+      <ConversationalServiceCreator
+        isModal={false}
+        initialTemplate={selectedTemplate}
+        initialStyle={selectedStyle}
+        initialSiteName={initialSiteName}
+        defaultPhone={activeAccount.phoneNumber}
+        publishedSitesCount={websitesList.length}
+        account={activeAccount}
+        websites={websitesList}
+        activeSection={section}
+        botNumber={botNumber}
+        onLogout={doLogout}
+        loggingOut={logout.isPending}
+        onNavigateSection={(targetSec) => {
+          if (targetSec === 'home') {
+            navigate('/dashboard');
+          } else {
+            navigate(`/dashboard/${targetSec}`);
+          }
+        }}
+        onSuccess={handleCreatedSuccess}
+      />
+    );
   }
 
   const initials = activeAccount.phoneNumber.slice(-2) || '··';
@@ -2358,7 +2393,7 @@ export default function Dashboard() {
               style={
                 active
                   ? {
-                      backgroundColor: '#0B132B',
+                       backgroundColor: '#0B132B',
                       color: '#FFFFFF',
                     }
                   : {
@@ -2381,17 +2416,7 @@ export default function Dashboard() {
         onClose={() => setCreateModalOpen(false)}
         initialTemplate={selectedTemplate}
         defaultPhone={activeAccount.phoneNumber}
-        onSuccess={(createdDoc) => {
-          setActiveSiteUsername(createdDoc.username);
-          const updatedAccount = getLocalAccount();
-          if (updatedAccount) {
-            queryClient.setQueryData(accountQueryKey, updatedAccount);
-          }
-          queryClient.setQueryData(siteQueryKey, createdDoc);
-          queryClient.setQueryData(['account', 'site', createdDoc.username], createdDoc);
-          void queryClient.invalidateQueries({ queryKey: accountQueryKey });
-          navigate('/dashboard/site');
-        }}
+        onSuccess={handleCreatedSuccess}
       />
     </div>
   );

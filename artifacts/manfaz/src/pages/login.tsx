@@ -335,7 +335,7 @@ export default function Login() {
         <div
           className="relative flex flex-col justify-between overflow-hidden rounded-3xl border border-[#1E293B] bg-[#0B132B] p-7 text-white shadow-[0_24px_60px_-24px_rgba(6,11,24,0.45)] sm:p-10 lg:col-span-6"
           style={{
-            background: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
+            backgroundImage: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
             backgroundColor: '#0B132B',
             borderColor: '#1E293B',
             color: '#FFFFFF',

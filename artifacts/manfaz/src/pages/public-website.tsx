@@ -2980,7 +2980,11 @@ export default function PublicWebsite() {
   const { username = '' } = useParams<{ username: string }>();
   const query = useGetPublicWebsite(username, { query: { queryKey: getGetPublicWebsiteQueryKey(username), enabled: Boolean(username) } });
   const localSite = useMemo(() => getLocalWebsiteByUsername(username), [username]);
-  const website = query.data || (localSite ? {
+  const remoteSite =
+    query.data && typeof query.data === 'object' && typeof query.data.templateId === 'string'
+      ? query.data
+      : undefined;
+  const website = remoteSite || (localSite ? {
     publicId: localSite.id,
     username: localSite.username,
     siteName: localSite.siteName,
