@@ -1,2423 +1,818 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  BadgeCheck,
-  BarChart3,
-  Briefcase,
-  CalendarCheck,
-  CalendarDays,
-  Check,
-  ClipboardList,
-  Copy,
-  ExternalLink,
-  Eye,
-  Gift,
-  Globe,
-  Home,
-  LayoutGrid,
-  ListChecks,
-  LogOut,
-  MessageCircle,
-  MessageSquare,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Rocket,
-  Search,
-  Send,
-  Settings,
-  ShoppingBag,
-  Smartphone,
-  Sparkles,
-  Star,
-  Store,
-  User,
-  UtensilsCrossed,
-  WandSparkles,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
-import { Link, useLocation } from 'wouter';
-import { getGetPublicWhatsappQueryKey, useGetPublicWhatsapp } from '@workspace/api-client-react';
-import { Brand } from '@/components/brand';
-import { Card } from '@/components/account-ui';
-import SiteEditor from '@/pages/site-editor';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ConversationalServiceCreator } from '@/components/conversational-service-creator';
+import { ArrowLeft, Check, ExternalLink, Loader2, LogOut, Plus, X } from 'lucide-react';
+import { Link, useLocation } from 'wouter';
+import { Brand } from '@/components/brand';
+import { ServiceCard } from '@/components/studio/service-card';
 import {
+  ApiError,
   accountQueryKey,
   createWebsiteInPlatform,
+  getActiveSiteUsername,
   getLocalAccount,
-  registerOrLoginWithPhone,
   setActiveSiteUsername,
   siteQueryKey,
   siteUrl,
   slugifyUsername,
   useAccount,
-  useAccountMessages,
+  useDeleteSite,
   useLogout,
-  useSendAssistantCommand,
+  useSaveSite,
   useSiteDocument,
-  type Account,
-  type InitialCollectionItemInput,
   type SiteDocument,
-  type SiteStyle,
 } from '@/lib/account';
-
-type Tone = 'blue' | 'indigo' | 'emerald' | 'violet' | 'rose' | 'teal';
-interface Service {
-  id: string;
-  group: string;
-  icon: LucideIcon;
-  title: string;
-  desc: string;
-  tone: Tone;
-  live: boolean;
-  keywords: string;
-  templateId: string;
-}
-
-const TONE_STYLES: Record<Tone, { bg: string; text: string; border: string }> = {
-  blue: { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' },
-  indigo: { bg: '#EEF2FF', text: '#4338CA', border: '#C7D2FE' },
-  emerald: { bg: '#ECFDF5', text: '#047857', border: '#A7F3D0' },
-  violet: { bg: '#F5F3FF', text: '#6D28D9', border: '#DDD6FE' },
-  rose: { bg: '#FFF1F2', text: '#BE123C', border: '#FECDD3' },
-  teal: { bg: '#F0FDFA', text: '#0F766E', border: '#99F6E4' },
-};
-
-interface SubServiceItem {
-  id: string;
-  icon: LucideIcon;
-  title: string;
-  shortLabel: string;
-  desc: string;
-  templateBadge: string;
-  tone: Tone;
-  keywords: string;
-  templateId: string;
-}
-
-interface ConsolidatedGroup {
-  id: string;
-  badge: string;
-  title: string;
-  subtitle: string;
-  items: SubServiceItem[];
-}
-
-const CONSOLIDATED_GROUPS: ConsolidatedGroup[] = [
-  {
-    id: 'websites',
-    badge: 'القسم الأول · 01',
-    title: 'خدمات المواقع والواجهات الرقمية',
-    subtitle: 'مواقع متكاملة للمتاجر والمطاعم والشركات والصفحات الشخصية والبطاقات الرقمية',
-    items: [
-      {
-        id: 'store',
-        icon: ShoppingBag,
-        title: 'متجر إلكتروني وسلة طلبات',
-        shortLabel: 'متجر إلكتروني',
-        desc: 'عرض المنتجات بالتصنيفات والأسعار مع سلة شراء ذكية ترسل الطلب لواتساب.',
-        templateBadge: 'قالب المتجر والسلة',
-        tone: 'emerald',
-        keywords: 'متجر بيع منتجات سلة تسوق',
-        templateId: 'store',
-      },
-      {
-        id: 'restaurant',
-        icon: UtensilsCrossed,
-        title: 'منيو مطعم أو كافيه رقمي QR',
-        shortLabel: 'مطعم / كافيه',
-        desc: 'قائمة طعام ومشروبات مقسمة بالأصناف والأسعار والصور مع طلب مباشر.',
-        templateBadge: 'قالب المنيو الرقمي',
-        tone: 'teal',
-        keywords: 'منيو قائمة مطعم كافيه طاولة',
-        templateId: 'restaurant',
-      },
-      {
-        id: 'services',
-        icon: Globe,
-        title: 'موقع شركة أو مؤسسة خدمية',
-        shortLabel: 'شركة / مؤسسة',
-        desc: 'واجهة رسمية للشركات والمؤسسات تستعرض الخدمات، فريق العمل، وبيانات التواصل.',
-        templateBadge: 'قالب الشركات والخدمات',
-        tone: 'blue',
-        keywords: 'شركة مؤسسة موقع رسمي خدمات',
-        templateId: 'services',
-      },
-      {
-        id: 'portfolio',
-        icon: Sparkles,
-        title: 'صفحة شخصية ومعرض أعمال (Portfolio)',
-        shortLabel: 'صفحة شخصية',
-        desc: 'معرض مشاريع ومهارات وسيرة مهنية للمصممين والمستقلين والخبراء.',
-        templateBadge: 'قالب معرض الأعمال',
-        tone: 'indigo',
-        keywords: 'بورتفوليو معرض أعمال صفحة شخصية مستقل',
-        templateId: 'portfolio',
-      },
-      {
-        id: 'vcard',
-        icon: User,
-        title: 'بطاقة تواصل رقمية وروابط (Bio Links)',
-        shortLabel: 'بطاقة رقمية وروابط',
-        desc: 'صفحة روابط موحدة تجمع حساباتك، أرقامك، وروابطك المهمة في واجهة جوال.',
-        templateBadge: 'قالب البطاقة والروابط',
-        tone: 'violet',
-        keywords: 'بطاقة روابط بايو تواصل تعريفية',
-        templateId: 'vcard',
-      },
-    ],
-  },
-  {
-    id: 'tools',
-    badge: 'القسم الثاني · 02',
-    title: 'الخدمات التفاعلية والأدوات الذكية',
-    subtitle: 'أدوات تفاعلية مستقلة للاستبيانات وحجز المواعيد والدعوات وعروض الأسعار',
-    items: [
-      {
-        id: 'survey',
-        icon: ClipboardList,
-        title: 'استبيان واستطلاع رأي العملاء',
-        shortLabel: 'استبيان وتقييم',
-        desc: 'نموذج استبيان تفاعلي مستقل بتقييم النجوم والأسئلة المتعددة وملخص الردود.',
-        templateBadge: 'قالب الاستبيان التفاعلي',
-        tone: 'violet',
-        keywords: 'استبيان استطلاع تقييم أسئلة رأي',
-        templateId: 'survey',
-      },
-      {
-        id: 'booking',
-        icon: CalendarCheck,
-        title: 'نظام حجز المواعيد والاستشارات',
-        shortLabel: 'حجز المواعيد',
-        desc: 'قالب حجوزات مخصص باختيار الخدمة والتاريخ والوقت وتأكيد الموعد مباشرة.',
-        templateBadge: 'قالب جدول الحجوزات',
-        tone: 'blue',
-        keywords: 'حجز موعد عيادة صالون استشارة',
-        templateId: 'booking',
-      },
-      {
-        id: 'rsvp',
-        icon: CalendarDays,
-        title: 'دعوة فعالية وتأكيد حضور (RSVP)',
-        shortLabel: 'دعوة وتأكيد حضور',
-        desc: 'بطاقة دعوة رسمية للمناسبات والفعاليات مع برنامج الحفل ونموذج تأكيد الحضور.',
-        templateBadge: 'قالب الدعوات وتأكيد الحضور',
-        tone: 'rose',
-        keywords: 'دعوة فعالية حفل مناسبة حضور',
-        templateId: 'rsvp',
-      },
-      {
-        id: 'invoice',
-        icon: Briefcase,
-        title: 'باقات الأسعار وحاسبة عروض الخدمات',
-        shortLabel: 'باقات وعروض أسعار',
-        desc: 'قالب تفاعلي يتيح للعميل تحديد الباقات المطلوبة وحساب التكلفة الإجمالية فوراً.',
-        templateBadge: 'قالب حاسبة الباقات',
-        tone: 'emerald',
-        keywords: 'باقات تسعير عروض أسعار فاتورة',
-        templateId: 'invoice',
-      },
-    ],
-  },
-];
-
-const TEMPLATE_NAMES: Record<string, string> = {
-  store: 'متجر إلكتروني',
-  restaurant: 'مطعم ومقهى',
-  services: 'شركة وخدمات',
-  portfolio: 'صفحة شخصية وأعمال',
-  vcard: 'بطاقة رقمية وروابط',
-  survey: 'استبيان واستطلاع رأي',
-  booking: 'حجز مواعيد',
-  rsvp: 'دعوة وتأكيد حضور',
-  invoice: 'باقات وعروض أسعار',
-};
-const STYLE_NAMES: Record<string, string> = {
-  classic: 'كلاسيكي أنيق',
-  modern: 'عصري فائق',
-  cinematic: 'سينمائي فاخر',
-  app: 'تطبيق جوال',
-};
-const COLOR_PRESETS = [
-  '#1D4ED8',
-  '#0B132B',
-  '#0284C7',
-  '#4338CA',
-  '#059669',
-  '#0F766E',
-  '#6D28D9',
-  '#BE123C',
-];
-
-const NAV = [
-  { href: '/dashboard', key: 'home', label: 'الرئيسية', icon: Home },
-  { href: '/dashboard/services', key: 'services', label: 'خدماتي وموقعي', icon: LayoutGrid },
-  { href: '/dashboard/assistant', key: 'assistant', label: 'المساعد السريع', icon: MessageCircle },
-  { href: '/dashboard/analytics', key: 'analytics', label: 'الإحصائيات', icon: BarChart3 },
-  { href: '/dashboard/settings', key: 'settings', label: 'الإعدادات', icon: Settings },
-];
-
-function greeting(): string {
-  return new Date().getHours() < 12 ? 'صباح الخير' : 'مساء الخير';
-}
-
-function maskPhone(phone: string): string {
-  return phone.length > 6 ? `+${phone.slice(0, 3)}••••${phone.slice(-3)}` : `+${phone}`;
-}
+import {
+  COLOR_PRESETS,
+  HELP_EXAMPLES,
+  STYLE_NAMES,
+  STYLE_ORDER,
+  TEMPLATES,
+  applyAction,
+  getItems,
+  getTemplate,
+  groupItems,
+  interpret,
+  isDirty,
+  newDraft,
+  styleOf,
+  type Action,
+  type Draft,
+  type SiteStyle,
+} from '@/lib/studio';
 
 // ---------------------------------------------------------------------------
-// In-Platform Site Creator Modal — Complete Parameter Collection
+// Types
 // ---------------------------------------------------------------------------
-function CreateSiteModal({
-  open,
-  onClose,
-  initialTemplate = 'store',
-  defaultPhone,
-  onSuccess,
-}: {
-  open: boolean;
-  onClose: () => void;
-  initialTemplate?: string;
-  defaultPhone?: string;
-  onSuccess: (created: SiteDocument) => void;
-}) {
-  if (!open) return null;
-  return (
-    <ConversationalServiceCreator
-      isModal={true}
-      initialTemplate={initialTemplate}
-      defaultPhone={defaultPhone}
-      onClose={onClose}
-      onSuccess={onSuccess}
-    />
-  );
+
+type ChipAction =
+  | { t: 'template'; id: string }
+  | { t: 'send'; text: string }
+  | { t: 'color'; hex: string; label: string }
+  | { t: 'style'; style: SiteStyle }
+  | { t: 'undo' }
+  | { t: 'reload' }
+  | { t: 'copy'; text: string };
+
+interface Chip {
+  label: string;
+  action: ChipAction;
+  swatch?: string;
 }
 
-// Legacy form reference helper kept for type continuity
-function _LegacyCreateSiteModalUnused({
-  initialTemplate = 'store',
-  defaultPhone,
-}: {
-  initialTemplate?: string;
-  defaultPhone?: string;
-}) {
-  const [siteName, setSiteName] = useState('');
-  const [username, setUsername] = useState('');
-  const [templateId, setTemplateId] = useState(initialTemplate);
-  const [templateStyle, setTemplateStyle] = useState<SiteStyle>('modern');
-  const [themeColor, setThemeColor] = useState('#1D4ED8');
-  const [darkMode, setDarkMode] = useState(false);
-  const [tagline, setTagline] = useState('');
-  const [headline, setHeadline] = useState('');
-  const [description, setDescription] = useState('');
-  const [ctaLabel, setCtaLabel] = useState('');
-  const [phone, setPhone] = useState(defaultPhone || '');
-  const [whatsapp, setWhatsapp] = useState(defaultPhone || '');
-  const [email, setEmail] = useState('');
-  const [address, setAddress] = useState('');
-  const [instagram, setInstagram] = useState('');
-  const [twitter, setTwitter] = useState('');
-  const [tiktok, setTiktok] = useState('');
-  const [snapchat, setSnapchat] = useState('');
-  const [hours, setHours] = useState<Array<{ day: string; time: string }>>([]);
-  const [initialItems, setInitialItems] = useState<InitialCollectionItemInput[]>([]);
-  const [skillsText, setSkillsText] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const onClose = () => {};
-  const onSuccess = (_doc: SiteDocument) => {};
+interface Msg {
+  id: number;
+  role: 'bot' | 'user';
+  text: string;
+  chips?: Chip[];
+}
 
-  const itemNoun =
-    templateId === 'restaurant'
-      ? 'طبق / صنف'
-      : templateId === 'services' || templateId === 'booking'
-      ? 'خدمة'
-      : templateId === 'invoice'
-      ? 'باقة'
-      : templateId === 'survey'
-      ? 'سؤال استبيان'
-      : templateId === 'vcard'
-      ? 'رابط'
-      : templateId === 'rsvp'
-      ? 'فقرة برنامج'
-      : templateId === 'portfolio'
-      ? 'مشروع / عمل'
-      : 'منتج';
+// One isolated conversation + canvas per service: chat history, unsaved edits
+// and the undo stack never leak between services.
+interface Session {
+  draft: Draft | null;
+  baseline: Draft | null;
+  version: string;
+  messages: Msg[];
+  history: Draft[];
+  flash: number[];
+  flashField?: string;
+}
 
-  const isSingleStyleTemplate = ['booking', 'survey', 'rsvp', 'invoice', 'vcard'].includes(
-    templateId
-  );
+const NEW_KEY = 'new';
+const emptySession = (): Session => ({ draft: null, baseline: null, version: '', messages: [], history: [], flash: [] });
 
-  const previewSlug = slugifyUsername(username.trim() || siteName.trim() || 'my-site');
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!siteName.trim()) return;
-    setSubmitting(true);
-
-    try {
-      const parsedSkills = skillsText
-        .split(/[,،\n]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const created = await createWebsiteInPlatform({
-        siteName: siteName.trim(),
-        username: username.trim() || undefined,
-        templateId,
-        templateStyle,
-        themeColor,
-        darkMode,
-        tagline: tagline.trim() || undefined,
-        headline: headline.trim() || undefined,
-        description: description.trim() || undefined,
-        ctaLabel: ctaLabel.trim() || undefined,
-        phone: phone.trim() || undefined,
-        whatsapp: whatsapp.trim() || phone.trim() || undefined,
-        email: email.trim() || undefined,
-        address: address.trim() || undefined,
-        socialLinks: {
-          instagram: instagram.trim() || undefined,
-          twitter: twitter.trim() || undefined,
-          tiktok: tiktok.trim() || undefined,
-          snapchat: snapchat.trim() || undefined,
-        },
-        hours: hours.filter((h) => h.day.trim() || h.time.trim()),
-        initialItems: initialItems.filter((item) => item.name?.trim() || item.title?.trim()),
-        skills: parsedSkills.length > 0 ? parsedSkills : undefined,
-      });
-
-      setSubmitting(false);
-      onSuccess(created);
-      onClose();
-    } catch {
-      setSubmitting(false);
-    }
+function toDraft(doc: SiteDocument): Draft {
+  return {
+    isNew: false,
+    id: doc.id,
+    username: doc.username,
+    siteName: doc.siteName,
+    templateId: doc.templateId,
+    themeColor: doc.themeColor || COLOR_PRESETS[0],
+    showBranding: doc.showBranding,
+    structure: doc.jsonStructure ?? {},
   };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-[acct-fade-up_.2s_ease_both]"
-      style={{ backgroundColor: 'rgba(6, 11, 24, 0.72)' }}
-    >
-      <div
-        className="relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-[#CBD5E1] bg-white p-6 text-[#0F172A] shadow-2xl sm:p-8"
-        style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-      >
-        <button
-          onClick={onClose}
-          className="absolute left-6 top-6 grid size-9 place-items-center rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] text-[#475569] transition-colors hover:bg-[#E2E8F0]"
-          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#475569' }}
-          aria-label="إغلاق"
-        >
-          <X size={18} />
-        </button>
-
-        <div className="flex items-center gap-3.5">
-          <span
-            className="grid size-12 shrink-0 place-items-center rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]"
-            style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-          >
-            <WandSparkles size={24} />
-          </span>
-          <div>
-            <h2 className="text-xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-              إنشاء خدمة أو موقع جديد وحفظه في قاعدة البيانات
-            </h2>
-            <p className="text-xs font-medium text-[#475569]" style={{ color: '#475569' }}>
-              أدخل بيانات نشاطك الفعلية والمنتجات ومعلومات التواصل دون أي بيانات وهمية
-            </p>
-          </div>
-        </div>
-
-        <form onSubmit={handleCreate} className="mt-6 space-y-5">
-          {/* 1. Template Type Grouped by Category */}
-          <div className="space-y-3">
-            <label
-              className="block text-xs font-extrabold text-[#0F172A]"
-              style={{ color: '#0F172A' }}
-            >
-              نوع الخدمة والقالب المخصص *
-            </label>
-            {CONSOLIDATED_GROUPS.map((grp) => (
-              <div
-                key={grp.id}
-                className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-3"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }}
-              >
-                <p
-                  className="mb-2 text-[11px] font-black text-[#475569]"
-                  style={{ color: '#475569' }}
-                >
-                  {grp.title}
-                </p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {grp.items.map(({ templateId: id, shortLabel, icon: Icon }) => {
-                    const active = templateId === id;
-                    return (
-                      <button
-                        type="button"
-                        key={id}
-                        onClick={() => setTemplateId(id)}
-                        data-testid={`modal-template-${id}`}
-                        className="flex items-center gap-2 rounded-xl border p-2.5 text-right text-xs font-bold transition-all"
-                        style={
-                          active
-                            ? {
-                                backgroundColor: '#0B132B',
-                                borderColor: '#0B132B',
-                                color: '#FFFFFF',
-                              }
-                            : {
-                                backgroundColor: '#FFFFFF',
-                                borderColor: '#CBD5E1',
-                                color: '#334155',
-                              }
-                        }
-                      >
-                        <Icon size={15} style={{ color: active ? '#38BDF8' : '#1D4ED8' }} />
-                        <span className="truncate">{shortLabel}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* 2. Site Name & Custom Username Slug */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label
-                className="block text-xs font-extrabold text-[#0F172A]"
-                style={{ color: '#0F172A' }}
-              >
-                اسم المشروع أو النشاط التجاري *
-              </label>
-              <input
-                type="text"
-                required
-                value={siteName}
-                onChange={(e) => setSiteName(e.target.value)}
-                placeholder="مثال: مخبز رغيف وسمسم، استوديو أفق"
-                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 text-sm font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                data-testid="input-site-name"
-              />
-            </div>
-
-            <div>
-              <label
-                className="block text-xs font-extrabold text-[#0F172A]"
-                style={{ color: '#0F172A' }}
-              >
-                الرابط المخصص للموقع (Username)
-              </label>
-              <input
-                type="text"
-                dir="ltr"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder={previewSlug}
-                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                data-testid="input-site-username"
-              />
-              <p dir="ltr" className="mt-1 text-right font-mono text-[11px] font-bold text-[#1D4ED8]" style={{ color: '#1D4ED8' }}>
-                {siteUrl(previewSlug)}
-              </p>
-            </div>
-          </div>
-
-          {/* 3. Tagline, Headline, Description, CTA */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-xs font-extrabold text-[#0F172A]" style={{ color: '#0F172A' }}>
-                العبارة الترحيبية العلوية (Tagline)
-              </label>
-              <input
-                type="text"
-                value={tagline}
-                onChange={(e) => setTagline(e.target.value)}
-                placeholder="مثال: جودة أصيلة منذ 2018"
-                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-extrabold text-[#0F172A]" style={{ color: '#0F172A' }}>
-                العنوان الرئيسي البارز (Headline)
-              </label>
-              <input
-                type="text"
-                value={headline}
-                onChange={(e) => setHeadline(e.target.value)}
-                placeholder={siteName.trim() || 'عنوان واجهة الموقع'}
-                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label
-              className="block text-xs font-extrabold text-[#0F172A]"
-              style={{ color: '#0F172A' }}
-            >
-              نبذة ووصف النشاط التجاري
-            </label>
-            <textarea
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="ما الذي تقدمه لعملائك؟ اكتب وصفاً حقيقياً يظهر لزوار موقعك."
-              className="mt-1.5 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] p-3 text-sm font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
-              style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-            />
-          </div>
-
-          {/* 4. Style, CTA Label, Theme Color, Dark Mode */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label
-                className="block text-xs font-extrabold text-[#0F172A]"
-                style={{ color: '#0F172A' }}
-              >
-                {isSingleStyleTemplate ? 'نوع القالب التفاعلي' : 'نمط التصميم المفضل'}
-              </label>
-              {isSingleStyleTemplate ? (
-                <div
-                  className="mt-1.5 flex h-11 items-center rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-3 text-xs font-extrabold text-[#1D4ED8]"
-                  style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-                >
-                  قالب تفاعلي مستقل مخصص لـ «{TEMPLATE_NAMES[templateId] || templateId}»
-                </div>
-              ) : (
-                <select
-                  value={templateStyle}
-                  onChange={(e) => {
-                    const nextStyle = e.target.value as SiteStyle;
-                    setTemplateStyle(nextStyle);
-                    if (nextStyle === 'cinematic') setDarkMode(true);
-                  }}
-                  className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
-                  style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                >
-                  <option value="modern">عصري فائق (Modern)</option>
-                  <option value="classic">كلاسيكي هادئ (Classic)</option>
-                  <option value="cinematic">سينمائي فاخر (Cinematic)</option>
-                  <option value="app">تطبيق جوال تفاعلي (App UI)</option>
-                </select>
-              )}
-            </div>
-
-            <div>
-              <label
-                className="block text-xs font-extrabold text-[#0F172A]"
-                style={{ color: '#0F172A' }}
-              >
-                نص زر الإجراء الرئيسي (CTA)
-              </label>
-              <input
-                type="text"
-                value={ctaLabel}
-                onChange={(e) => setCtaLabel(e.target.value)}
-                placeholder={
-                  templateId === 'booking'
-                    ? 'احجز الآن'
-                    : templateId === 'survey'
-                    ? 'إرسال التقييم'
-                    : templateId === 'rsvp'
-                    ? 'تأكيد الحضور'
-                    : templateId === 'invoice'
-                    ? 'طلب عرض السعر'
-                    : templateId === 'restaurant'
-                    ? 'شاهد المنيو واطلب'
-                    : 'تواصل واطلب الآن'
-                }
-                className="mt-1.5 h-11 w-full rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4" style={{ backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }}>
-            <div>
-              <label
-                className="block text-xs font-extrabold text-[#0F172A]"
-                style={{ color: '#0F172A' }}
-              >
-                لون الهوية المميز
-              </label>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {COLOR_PRESETS.map((color) => (
-                  <button
-                    type="button"
-                    key={color}
-                    onClick={() => setThemeColor(color)}
-                    className={`grid size-8 place-items-center rounded-full transition-transform ${
-                      themeColor === color
-                        ? 'scale-110 ring-2 ring-[#0F172A] ring-offset-2'
-                        : 'hover:scale-105'
-                    }`}
-                    style={{ backgroundColor: color, color: '#FFFFFF' }}
-                    aria-label={color}
-                  >
-                    {themeColor === color && <Check size={13} strokeWidth={3} />}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <label className="inline-flex cursor-pointer items-center gap-2.5 text-xs font-extrabold text-[#0F172A]" style={{ color: '#0F172A' }}>
-              <input
-                type="checkbox"
-                checked={darkMode}
-                onChange={(e) => setDarkMode(e.target.checked)}
-                className="size-4 accent-[#1D4ED8]"
-              />
-              <span>تفعيل الوضع الداكن افتراضياً</span>
-            </label>
-          </div>
-
-          {/* 5. Contact Information (Saved inside json_structure.contact) */}
-          <div className="rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 space-y-3" style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}>
-            <p className="text-xs font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-              بيانات التواصل والعنوان
-            </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
-                  رقم واتساب للطلبات المباشرة
-                </label>
-                <input
-                  type="text"
-                  value={whatsapp}
-                  onChange={(e) => setWhatsapp(e.target.value)}
-                  dir="ltr"
-                  placeholder="9665XXXXXXXX"
-                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
-                  رقم الجوال للاتصال
-                </label>
-                <input
-                  type="text"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  dir="ltr"
-                  placeholder="9665XXXXXXXX"
-                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
-                  البريد الإلكتروني (اختياري)
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  dir="ltr"
-                  placeholder="info@example.com"
-                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
-                  العنوان أو المدينة (اختياري)
-                </label>
-                <input
-                  type="text"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="مثال: الرياض - حي العليا"
-                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-xs font-bold text-[#0F172A] outline-none focus:border-[#2563EB]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* 6. Initial Products / Dishes / Services / Projects / Survey Questions */}
-          <div className="rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 space-y-3" style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-                  العناصر المبدئية ({itemNoun})
-                </p>
-                <p className="text-[11px] font-medium text-[#475569]" style={{ color: '#475569' }}>
-                  {templateId === 'survey'
-                    ? 'إذا تركت الأسئلة فارغة، سيضيف النظام تلقائياً 5 أسئلة متنوعة جاهزة (نجوم، اختيار فردي، اختيار متعدد، نعم/لا، وسؤال مفتوح).'
-                    : 'أضف منتجاتك أو خدماتك الحقيقية الآن أو لاحقاً من المحرر'}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {templateId === 'survey' && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setInitialItems([
-                        {
-                          name: 'ما مدى رضاك العام عن مستوى الخدمة المقدمة؟',
-                          duration: 'rating',
-                          category: '5 نجوم، 4 نجوم، 3 نجوم، نجمتان، نجمة واحدة',
-                          description: 'اختر عدد النجوم من 1 إلى 5',
-                        },
-                        {
-                          name: 'كيف تقيّم سرعة الاستجابة والاحترافية في التعامل؟',
-                          duration: 'choice',
-                          category: 'ممتاز وفوق التوقعات، جيد جداً، جيد، يحتاج تحسين',
-                          description: 'اختر إجابة واحدة',
-                        },
-                        {
-                          name: 'ما هي الجوانب التي نالت إعجابك أكثر؟ (يمكن اختيار أكثر من إجابة)',
-                          duration: 'multi',
-                          category: 'جودة الخدمة، سرعة الإنجاز، وضوح الأسعار، سهولة التواصل',
-                          description: 'حدد كل ما ينطبق',
-                        },
-                        {
-                          name: 'هل توصي بخدماتنا لأصدقائك أو زملائك؟',
-                          duration: 'yesno',
-                          category: 'نعم بالتأكيد، ربما، لا',
-                          description: 'رأيك يهمنا',
-                        },
-                        {
-                          name: 'ما هي مقترحاتك أو ملاحظاتك لتطوير خدماتنا مستقبلاً؟',
-                          duration: 'text',
-                          category: 'سؤال مفتوح',
-                          description: 'اكتب رأيك بحرية',
-                        },
-                      ])
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1.5 text-xs font-extrabold text-[#1D4ED8] hover:bg-[#DBEAFE]"
-                    style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-                    data-testid="button-modal-load-survey-defaults"
-                  >
-                    <Sparkles size={13} />
-                    <span>إدراج 5 أسئلة متنوعة</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setInitialItems((prev) => [
-                      ...prev,
-                      {
-                        name: '',
-                        price: '',
-                        duration: templateId === 'survey' ? 'choice' : '',
-                        category: templateId === 'survey' ? 'ممتاز، جيد جداً، جيد، مقبول' : '',
-                        description: '',
-                      },
-                    ])
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1E40AF]"
-                  style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-                  data-testid="button-modal-add-item"
-                >
-                  <Plus size={14} />
-                  <span>إضافة {itemNoun}</span>
-                </button>
-              </div>
-            </div>
-
-            {initialItems.length > 0 && (
-              <div className="space-y-2.5">
-                {initialItems.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="grid grid-cols-1 gap-2 rounded-xl border border-[#CBD5E1] bg-white p-3 sm:grid-cols-12"
-                    style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
-                  >
-                    <input
-                      type="text"
-                      value={item.name || ''}
-                      onChange={(e) =>
-                        setInitialItems((prev) =>
-                          prev.map((entry, i) => (i === idx ? { ...entry, name: e.target.value } : entry))
-                        )
-                      }
-                      placeholder={
-                        templateId === 'survey'
-                          ? 'نص السؤال (مثال: كيف تقيّم الخدمة؟) *'
-                          : templateId === 'vcard'
-                          ? 'عنوان الرابط (مثال: حسابنا في إنستقرام) *'
-                          : templateId === 'rsvp'
-                          ? 'عنوان الفقرة (مثال: استقبال الضيوف) *'
-                          : `اسم الـ${itemNoun} *`
-                      }
-                      className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-4"
-                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    />
-                    {templateId === 'survey' ? (
-                      <>
-                        <select
-                          value={item.duration || 'choice'}
-                          onChange={(e) =>
-                            setInitialItems((prev) =>
-                              prev.map((entry, i) =>
-                                i === idx ? { ...entry, duration: e.target.value } : entry
-                              )
-                            )
-                          }
-                          className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2 text-xs font-bold text-[#0F172A] sm:col-span-3"
-                          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                        >
-                          <option value="choice">اختيار فردي</option>
-                          <option value="multi">اختيار متعدد</option>
-                          <option value="rating">تقييم بالنجوم (1-5)</option>
-                          <option value="nps">مقياس رقمي (1-10)</option>
-                          <option value="yesno">نعم / لا / ربما</option>
-                          <option value="text">سؤال مفتوح (نصي)</option>
-                        </select>
-                        <input
-                          type="text"
-                          value={item.category || ''}
-                          onChange={(e) =>
-                            setInitialItems((prev) =>
-                              prev.map((entry, i) =>
-                                i === idx ? { ...entry, category: e.target.value } : entry
-                              )
-                            )
-                          }
-                          placeholder="الخيارات بفاصلة (ممتاز، جيد، مقبول)"
-                          className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-4"
-                          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                        />
-                      </>
-                    ) : (
-                      templateId !== 'portfolio' && (
-                        <input
-                          type="text"
-                          value={item.price || ''}
-                          onChange={(e) =>
-                            setInitialItems((prev) =>
-                              prev.map((entry, i) =>
-                                i === idx ? { ...entry, price: e.target.value } : entry
-                              )
-                            )
-                          }
-                          placeholder={
-                            templateId === 'vcard'
-                              ? 'الرابط https://...'
-                              : templateId === 'rsvp'
-                              ? 'التوقيت (مثال: 08:00 م)'
-                              : 'السعر (مثال: 45 ر.س)'
-                          }
-                          className="h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-bold text-[#0F172A] sm:col-span-3"
-                          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                        />
-                      )
-                    )}
-                    {templateId !== 'survey' && (
-                      <input
-                        type="text"
-                        value={item.description || ''}
-                        onChange={(e) =>
-                          setInitialItems((prev) =>
-                            prev.map((entry, i) =>
-                              i === idx ? { ...entry, description: e.target.value } : entry
-                            )
-                          )
-                        }
-                        placeholder="وصف مختصر"
-                        className={`h-9 rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 text-xs font-medium text-[#0F172A] ${
-                          templateId === 'portfolio' ? 'sm:col-span-7' : 'sm:col-span-4'
-                        }`}
-                        style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                      />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setInitialItems((prev) => prev.filter((_, i) => i !== idx))}
-                      className="grid h-9 place-items-center rounded-lg border border-[#FECDD3] bg-[#FFF1F2] text-[#BE123C] sm:col-span-1"
-                      style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#BE123C' }}
-                      aria-label="حذف العنصر"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {templateId === 'portfolio' && (
-              <div className="pt-2">
-                <label className="block text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
-                  المهارات والتخصصات (افصل بينها بفاصلة)
-                </label>
-                <input
-                  type="text"
-                  value={skillsText}
-                  onChange={(e) => setSkillsText(e.target.value)}
-                  placeholder="مثال: تصميم الهوية، واجهات المستخدم، تطوير الويب"
-                  className="mt-1 h-10 w-full rounded-xl border border-[#CBD5E1] bg-white px-3 text-xs font-bold text-[#0F172A]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* 7. Working Hours & Social Links (Optional Collapsible Details) */}
-          <details className="rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4" style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}>
-            <summary className="cursor-pointer text-xs font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-              ساعات العمل وحسابات التواصل الاجتماعي (اختياري)
-            </summary>
-            <div className="mt-4 space-y-4">
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-[#334155]" style={{ color: '#334155' }}>
-                    أوقات الدوام
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setHours((prev) => [...prev, { day: '', time: '' }])}
-                    className="rounded-lg border border-[#CBD5E1] bg-white px-2.5 py-1 text-[11px] font-bold text-[#1D4ED8]"
-                    style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#1D4ED8' }}
-                  >
-                    + إضافة فترة دوام
-                  </button>
-                </div>
-                {hours.map((row, idx) => (
-                  <div key={idx} className="mt-2 flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={row.day}
-                      onChange={(e) =>
-                        setHours((prev) =>
-                          prev.map((r, i) => (i === idx ? { ...r, day: e.target.value } : r))
-                        )
-                      }
-                      placeholder="الأيام (مثال: السبت - الخميس)"
-                      className="h-9 flex-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 text-xs font-bold text-[#0F172A]"
-                      style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    />
-                    <input
-                      type="text"
-                      value={row.time}
-                      onChange={(e) =>
-                        setHours((prev) =>
-                          prev.map((r, i) => (i === idx ? { ...r, time: e.target.value } : r))
-                        )
-                      }
-                      placeholder="الوقت (مثال: 9 ص - 10 م)"
-                      className="h-9 flex-1 rounded-lg border border-[#CBD5E1] bg-white px-2.5 text-xs font-bold text-[#0F172A]"
-                      style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setHours((prev) => prev.filter((_, i) => i !== idx))}
-                      className="grid size-9 place-items-center rounded-lg border border-[#FECDD3] bg-[#FFF1F2] text-[#BE123C]"
-                      style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#BE123C' }}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={instagram}
-                  onChange={(e) => setInstagram(e.target.value)}
-                  placeholder="Instagram (@username)"
-                  className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={twitter}
-                  onChange={(e) => setTwitter(e.target.value)}
-                  placeholder="X / Twitter (@username)"
-                  className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={tiktok}
-                  onChange={(e) => setTiktok(e.target.value)}
-                  placeholder="TikTok (@username)"
-                  className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={snapchat}
-                  onChange={(e) => setSnapchat(e.target.value)}
-                  placeholder="Snapchat (@username)"
-                  className="h-9 rounded-lg border border-[#CBD5E1] bg-white px-3 text-left font-mono text-xs font-bold text-[#0F172A]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                />
-              </div>
-            </div>
-          </details>
-
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={submitting || !siteName.trim()}
-              className="inline-flex h-13 w-full items-center justify-center gap-2 rounded-xl bg-[#1D4ED8] text-sm font-bold text-white shadow-[0_14px_30px_-10px_rgba(29,78,216,0.5)] transition-all hover:bg-[#1E40AF] disabled:opacity-60"
-              style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-              data-testid="button-submit-create-site"
-            >
-              {submitting ? <RefreshCw className="animate-spin" size={18} /> : <Rocket size={18} />}
-              <span>إنشاء وتفعيل الموقع الآن في المنصة</span>
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
 }
 
+const str = (v: unknown) => (typeof v === 'string' ? v : '');
+
+const COLOR_CHIPS: Chip[] = [
+  { label: 'أزرق', swatch: '#2563EB', action: { t: 'color', hex: '#2563EB', label: 'الأزرق' } },
+  { label: 'كحلي', swatch: '#0F172A', action: { t: 'color', hex: '#0F172A', label: 'الكحلي' } },
+  { label: 'أخضر', swatch: '#059669', action: { t: 'color', hex: '#059669', label: 'الأخضر' } },
+  { label: 'أحمر', swatch: '#BE123C', action: { t: 'color', hex: '#BE123C', label: 'الأحمر' } },
+  { label: 'بنفسجي', swatch: '#6D28D9', action: { t: 'color', hex: '#6D28D9', label: 'البنفسجي' } },
+  { label: 'برتقالي', swatch: '#EA580C', action: { t: 'color', hex: '#EA580C', label: 'البرتقالي' } },
+];
+
+const PRICE_CHIPS: Chip[] = [
+  { label: '+ 5 ر.س', action: { t: 'send', text: 'زد الأسعار 5 ريال' } },
+  { label: '+ 10 ر.س', action: { t: 'send', text: 'زد الأسعار 10 ريال' } },
+  { label: '+ 10٪', action: { t: 'send', text: 'زد الأسعار 10%' } },
+  { label: '− 5 ر.س', action: { t: 'send', text: 'خفض الأسعار 5 ريال' } },
+  { label: '− 10٪', action: { t: 'send', text: 'خفض الأسعار 10%' } },
+];
+
+const TYPE_CHIPS: Chip[] = TEMPLATES.map((t) => ({ label: t.label, action: { t: 'template', id: t.id } }));
+
 // ---------------------------------------------------------------------------
-// Helper Building Blocks
+// Small presentational pieces
 // ---------------------------------------------------------------------------
-function CopyLinkButton({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
+
+function ChipButton({ chip, onPick, large = false }: { chip: Chip; onPick: (c: Chip) => void; large?: boolean }) {
   return (
     <button
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(url);
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1600);
-        } catch {
-          /* ignore */
-        }
-      }}
-      className="inline-flex items-center gap-2 rounded-xl border border-[#CBD5E1] bg-white px-4 py-2.5 text-xs font-bold text-[#0F172A] transition-colors hover:bg-[#F1F5F9]"
-      style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-      data-testid="button-copy-site-link"
+      type="button"
+      onClick={() => onPick(chip)}
+      className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border bg-white font-bold transition-colors hover:border-[#2563EB] hover:bg-[#EFF6FF] ${large ? 'h-11 justify-center px-4 text-sm' : 'h-9 px-3.5 text-xs'}`}
+      style={{ borderColor: '#CBD5E1', color: '#0F172A' }}
     >
-      {copied ? (
-        <Check size={15} style={{ color: '#059669' }} />
-      ) : (
-        <Copy size={15} style={{ color: '#1D4ED8' }} />
-      )}
-      <span>{copied ? 'تم النسخ' : 'نسخ الرابط'}</span>
+      {chip.swatch && <span className="size-3.5 rounded-full" style={{ backgroundColor: chip.swatch }} />}
+      {chip.label}
     </button>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Section: Home Dashboard
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Consolidated 2-Group Services Catalog Component (Zero Filler)
-// ---------------------------------------------------------------------------
-function ConsolidatedServicesCatalog({
-  query = '',
-  onOpenCreate,
-}: {
-  query?: string;
-  onOpenCreate: (templateId: string) => void;
-}) {
-  const normalized = query.trim().toLowerCase();
-  const matches = (item: SubServiceItem) =>
-    !normalized ||
-    `${item.title} ${item.shortLabel} ${item.desc} ${item.keywords}`
-      .toLowerCase()
-      .includes(normalized);
-
+function Bubble({ msg, onPick, grid = false }: { msg: Msg; onPick: (c: Chip) => void; grid?: boolean }) {
+  const mine = msg.role === 'user';
   return (
-    <div className="space-y-6">
-      {CONSOLIDATED_GROUPS.map((group) => {
-        const items = group.items.filter(matches);
-        if (items.length === 0) return null;
-
-        return (
-          <Card
-            key={group.id}
-            className="overflow-hidden border border-[#CBD5E1] p-6"
-            style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-            data-testid={`dashboard-group-${group.id}`}
-          >
-            {/* Consolidated Group Header */}
-            <div
-              className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4"
-              style={{ borderColor: '#E2E8F0' }}
-            >
-              <div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="rounded-lg bg-[#0B132B] px-2.5 py-0.5 font-mono text-[11px] font-extrabold text-[#38BDF8]"
-                    style={{ backgroundColor: '#0B132B', color: '#38BDF8' }}
-                  >
-                    {group.badge}
-                  </span>
-                  <span
-                    className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-2.5 py-0.5 text-[11px] font-extrabold text-[#1D4ED8]"
-                    style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-                  >
-                    {items.length} قوالب مستقلة
-                  </span>
-                </div>
-                <h2
-                  className="mt-2 text-lg font-black text-[#0F172A]"
-                  style={{ color: '#0F172A' }}
-                >
-                  {group.title}
-                </h2>
-                <p
-                  className="mt-0.5 text-xs font-medium text-[#475569]"
-                  style={{ color: '#475569' }}
-                >
-                  {group.subtitle}
-                </p>
-              </div>
-            </div>
-
-            {/* Organized Sub-Services Grid */}
-            <div className="mt-5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-              {items.map((service) => {
-                const Icon = service.icon;
-                const tone = TONE_STYLES[service.tone];
-                return (
-                  <div
-                    key={service.id}
-                    className="flex flex-col justify-between rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4 transition-all duration-200 hover:border-[#2563EB] hover:bg-white hover:shadow-sm"
-                    style={{
-                      backgroundColor: '#F8FAFC',
-                      borderColor: '#CBD5E1',
-                      color: '#0F172A',
-                    }}
-                    data-testid={`service-item-${service.id}`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className="grid size-10 shrink-0 place-items-center rounded-xl border"
-                          style={{
-                            backgroundColor: tone.bg,
-                            borderColor: tone.border,
-                            color: tone.text,
-                          }}
-                        >
-                          <Icon size={19} />
-                        </span>
-                        <span
-                          className="rounded-lg border px-2.5 py-0.5 text-[11px] font-extrabold"
-                          style={{
-                            backgroundColor: tone.bg,
-                            borderColor: tone.border,
-                            color: tone.text,
-                          }}
-                        >
-                          {service.templateBadge}
-                        </span>
-                      </div>
-
-                      <h3
-                        className="mt-3 text-sm font-black text-[#0F172A]"
-                        style={{ color: '#0F172A' }}
-                      >
-                        {service.title}
-                      </h3>
-                      <p
-                        className="mt-1 text-xs font-medium leading-5 text-[#475569]"
-                        style={{ color: '#475569' }}
-                      >
-                        {service.desc}
-                      </p>
-                    </div>
-
-                    <div className="mt-4 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => onOpenCreate(service.templateId)}
-                        data-testid={`button-launch-${service.templateId}`}
-                        className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-[#0B132B] text-xs font-bold text-white transition-colors hover:bg-[#1D4ED8]"
-                        style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
-                      >
-                        <Plus size={14} />
-                        <span>إنشاء بـ {service.templateBadge}</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        );
-      })}
+    <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`} style={{ direction: 'rtl' }}>
+      <div className="max-w-[92%]">
+        <div
+          className="rounded-2xl px-4 py-3 text-sm font-semibold leading-relaxed"
+          style={
+            mine
+              ? { backgroundColor: '#0F172A', color: '#FFFFFF', borderTopLeftRadius: 6 }
+              : { backgroundColor: '#EAF0FD', color: '#0F172A', border: '1px solid #D5E0F7', borderTopRightRadius: 6 }
+          }
+        >
+          {msg.text}
+        </div>
+        {msg.chips && msg.chips.length > 0 && (
+          <div className={grid ? 'mt-2.5 grid grid-cols-2 gap-2' : 'mt-2 flex flex-wrap gap-1.5'}>
+            {msg.chips.map((c) => (
+              <ChipButton key={c.label} chip={c} onPick={onPick} large={grid} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Section: Home Dashboard
-// ---------------------------------------------------------------------------
-function HomeSection({
-  account,
-  onOpenCreate,
-}: {
-  account: Account;
-  onOpenCreate: (templateId?: string) => void;
-}) {
-  const [, navigate] = useLocation();
-  const [query, setQuery] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-  const websites =
-    account.websites && account.websites.length > 0
-      ? account.websites
-      : account.website
-      ? [account.website]
-      : [];
-
+function PreviewSheet({ username, onClose }: { username: string; onClose: () => void }) {
+  const src = useMemo(() => `${siteUrl(username)}?preview=${Date.now()}`, [username]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return (
-    <div className="space-y-7">
-      {/* Executive Royal Sapphire Hero Welcome Banner */}
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#0F172A]/60 sm:items-center" role="dialog" aria-modal="true" aria-label="معاينة حية" onClick={onClose}>
       <div
-        className="relative overflow-hidden rounded-3xl border border-[#1E293B] bg-[#0B132B] px-6 py-7 text-white shadow-[0_24px_60px_-24px_rgba(6,11,24,0.45)] sm:px-9 sm:py-9"
-        style={{
-          backgroundImage: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
-          backgroundColor: '#0B132B',
-          borderColor: '#1E293B',
-          color: '#FFFFFF',
-        }}
+        className="flex h-[92dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-white sm:h-[86dvh] sm:w-[420px] sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
       >
-        <div className="relative z-10 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p
-              className="text-xs font-extrabold tracking-wide text-[#38BDF8]"
-              style={{ color: '#38BDF8' }}
-            >
-              {greeting()} · استوديو ORxai السحابي
-            </p>
-            <h1
-              className="mt-1.5 text-[clamp(1.5rem,3.2vw,2.15rem)] font-black leading-tight tracking-tight text-white"
-              style={{ color: '#FFFFFF' }}
-            >
-              إدارة المواقع والخدمات التفاعلية
-            </h1>
-            <p
-              className="mt-1.5 max-w-xl text-xs font-medium leading-relaxed text-[#CBD5E1] sm:text-sm"
-              style={{ color: '#CBD5E1' }}
-            >
-              قسمان منظمان بدون حشو: خدمات المواقع والواجهات الرقمية، والخدمات التفاعلية (الاستبيان، الحجز، الدعوات، الباقات) — لكل خدمة قالبها المخصص ولوحة نتائجها المستقلة.
-            </p>
-          </div>
-
-          <button
-            onClick={() => onOpenCreate('store')}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 text-xs font-bold text-white shadow-md transition-all hover:bg-[#1D4ED8] sm:text-sm"
-            style={{ backgroundColor: '#2563EB', color: '#FFFFFF' }}
-            data-testid="button-create-service-header"
+        <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: '#E2E8F0' }}>
+          <p className="flex-1 text-sm font-extrabold" style={{ color: '#0F172A' }}>معاينة حية</p>
+          <a
+            href={siteUrl(username)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#F1F5F9] px-3 text-xs font-bold"
+            style={{ color: '#0F172A' }}
           >
-            <Plus size={17} />
-            <span>إنشاء خدمة / موقع جديد</span>
+            <ExternalLink size={14} />
+            فتح في تبويب جديد
+          </a>
+          <button type="button" onClick={onClose} aria-label="إغلاق" className="grid size-9 place-items-center rounded-xl hover:bg-[#F1F5F9]">
+            <X size={18} />
           </button>
         </div>
-
-        {/* High-Contrast Search Bar */}
-        <div className="relative z-10 mt-5 max-w-xl">
-          <Search
-            size={18}
-            className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2"
-            style={{ color: '#475569' }}
-          />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="ابحث: متجر، مطعم، استبيان، حجز مواعيد، دعوة، باقات..."
-            className="h-11 w-full rounded-xl border border-[#CBD5E1] bg-white pl-4 pr-11 text-xs font-semibold text-[#0F172A] shadow-xs outline-none transition-all focus:border-[#38BDF8] sm:text-sm"
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderColor: '#CBD5E1',
-              color: '#0F172A',
-            }}
-            data-testid="input-service-search"
-            aria-label="ابحث عن خدمة"
-          />
-        </div>
-      </div>
-
-      {/* All Created Websites & Services List (Preserves all previous sites) */}
-      {websites.length > 0 && (
-        <div className="space-y-3" data-testid="home-websites-list">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-              مواقعك وخدماتك المنشورة ({websites.length})
-            </h2>
-            <Link
-              href="/dashboard/services"
-              className="text-xs font-extrabold text-[#1D4ED8] hover:underline"
-              style={{ color: '#1D4ED8' }}
-            >
-              إدارة جميع المواقع ←
-            </Link>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {websites.map((site) => (
-              <Card
-                key={site.id}
-                className="overflow-hidden border-[#93C5FD] p-5"
-                style={{
-                  backgroundImage: 'linear-gradient(135deg, #FFFFFF 0%, #EFF6FF 100%)',
-                  backgroundColor: '#FFFFFF',
-                  borderColor: '#93C5FD',
-                  color: '#0F172A',
-                }}
-                data-testid={`site-card-${site.username}`}
-              >
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3.5">
-                      <span
-                        className="grid size-12 shrink-0 place-items-center rounded-2xl text-white shadow-xs"
-                        style={{ backgroundColor: site.themeColor || '#1D4ED8', color: '#FFFFFF' }}
-                      >
-                        <Globe size={22} />
-                      </span>
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3
-                            className="text-base font-black text-[#0F172A]"
-                            style={{ color: '#0F172A' }}
-                          >
-                            {site.siteName}
-                          </h3>
-                          <span
-                            className="rounded-md border border-[#BFDBFE] bg-white px-2 py-0.5 text-[11px] font-extrabold text-[#1D4ED8]"
-                            style={{
-                              backgroundColor: '#FFFFFF',
-                              borderColor: '#BFDBFE',
-                              color: '#1D4ED8',
-                            }}
-                          >
-                            {TEMPLATE_NAMES[site.templateId] ?? site.templateId}
-                          </span>
-                          <span className="text-xs font-extrabold" style={{ color: '#059669' }}>
-                            ● منشور
-                          </span>
-                        </div>
-                        <p
-                          dir="ltr"
-                          className="mt-0.5 text-right font-mono text-xs font-bold text-[#334155]"
-                          style={{ color: '#334155' }}
-                        >
-                          {siteUrl(site.username)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveSiteUsername(site.username);
-                        navigate('/dashboard/site');
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3.5 py-2 text-xs font-bold text-white shadow-xs transition-colors hover:bg-[#1E40AF]"
-                      style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-                      data-testid={`button-edit-${site.username}`}
-                    >
-                      <Pencil size={14} />
-                      <span>تخصيص القالب</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveSiteUsername(site.username);
-                        navigate('/dashboard/site?tab=results');
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#BFDBFE] bg-white px-3.5 py-2 text-xs font-extrabold text-[#1D4ED8] transition-colors hover:bg-[#DBEAFE]"
-                      style={{ backgroundColor: '#FFFFFF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-                      data-testid={`button-results-${site.username}`}
-                    >
-                      <BarChart3 size={14} />
-                      <span>النتائج والردود ({site.submissionsCount ?? 0})</span>
-                    </button>
-                    <a
-                      href={siteUrl(site.username)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#0B132B] px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-[#1E293B]"
-                      style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
-                    >
-                      <ExternalLink size={14} />
-                      <span>معاينة</span>
-                    </a>
-                    <CopyLinkButton url={siteUrl(site.username)} />
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Consolidated 2-Group Services Catalog */}
-      <ConsolidatedServicesCatalog query={query} onOpenCreate={onOpenCreate} />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section: Services Management
-// ---------------------------------------------------------------------------
-function ServicesSection({
-  account,
-  onOpenCreate,
-}: {
-  account: Account;
-  onOpenCreate: (templateId?: string) => void;
-}) {
-  const [, navigate] = useLocation();
-  const websites =
-    account.websites && account.websites.length > 0
-      ? account.websites
-      : account.website
-      ? [account.website]
-      : [];
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1
-            className="text-2xl font-black text-[#0F172A]"
-            style={{ color: '#0F172A' }}
-          >
-            خدماتي ومواقعي ({websites.length})
-          </h1>
-          <p
-            className="mt-1 text-sm font-medium text-[#475569]"
-            style={{ color: '#475569' }}
-          >
-            جميع مواقعك وخدماتك التفاعلية محفوظة هنا — يمكنك تعديل أي منها أو استعراض النتائج والردود المستلمة
-          </p>
-        </div>
-        <button
-          onClick={() => onOpenCreate('store')}
-          className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#1D4ED8] px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#1E40AF]"
-          style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-        >
-          <Plus size={16} />
-          <span>إضافة موقع أو خدمة جديدة</span>
-        </button>
-      </div>
-
-      {websites.length > 0 && (
-        <div className="space-y-4" data-testid="services-websites-list">
-          {websites.map((website) => {
-            const url = siteUrl(website.username);
-            return (
-              <Card
-                key={website.id}
-                className="overflow-hidden border border-[#CBD5E1]"
-                data-testid={`service-site-card-${website.username}`}
-              >
-                <div
-                  className="flex flex-col gap-4 border-b border-[#E2E8F0] p-6 sm:flex-row sm:items-center sm:justify-between"
-                  style={{ borderColor: '#E2E8F0' }}
-                >
-                  <div className="flex items-center gap-4">
-                    <span
-                      className="grid size-14 shrink-0 place-items-center rounded-2xl text-white shadow-xs"
-                      style={{ backgroundColor: website.themeColor || '#1D4ED8', color: '#FFFFFF' }}
-                    >
-                      <Globe size={24} />
-                    </span>
-                    <div className="min-w-0">
-                      <h2
-                        className="truncate text-lg font-black text-[#0F172A]"
-                        style={{ color: '#0F172A' }}
-                        data-testid="text-site-name"
-                      >
-                        {website.siteName}
-                      </h2>
-                      <p
-                        dir="ltr"
-                        className="truncate text-right font-mono text-xs font-bold text-[#475569]"
-                        style={{ color: '#475569' }}
-                      >
-                        {url.replace(/^https?:\/\//, '')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
-                    <span
-                      className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-3 py-1 text-[#334155]"
-                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
-                    >
-                      {TEMPLATE_NAMES[website.templateId] ?? website.templateId}
-                    </span>
-                    <span
-                      className="rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1 font-extrabold text-[#1D4ED8]"
-                      style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-                    >
-                      الردود والطلبات: {website.submissionsCount ?? 0}
-                    </span>
-                    <span
-                      className="rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] px-3 py-1 text-[#047857]"
-                      style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
-                    >
-                      ● منشور ومتاح
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-3 p-6">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveSiteUsername(website.username);
-                      navigate('/dashboard/site');
-                    }}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#1D4ED8] px-5 py-2.5 text-sm font-bold text-white shadow-xs transition-colors hover:bg-[#1E40AF]"
-                    style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-                    data-testid="link-edit-site"
-                  >
-                    <Pencil size={16} />
-                    <span>تخصيص القالب والمحتوى</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveSiteUsername(website.username);
-                      navigate('/dashboard/site?tab=results');
-                    }}
-                    className="inline-flex items-center gap-2 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-5 py-2.5 text-sm font-black text-[#1D4ED8] transition-colors hover:bg-[#DBEAFE]"
-                    style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-                    data-testid={`link-results-site-${website.username}`}
-                  >
-                    <BarChart3 size={16} />
-                    <span>النتائج والردود المستلمة ({website.submissionsCount ?? 0})</span>
-                  </button>
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#0B132B] px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#1E293B]"
-                    style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
-                    data-testid="link-open-site"
-                  >
-                    <ExternalLink size={16} />
-                    <span>فتح الموقع مباشرة</span>
-                  </a>
-                  <CopyLinkButton url={url} />
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <ConsolidatedServicesCatalog onOpenCreate={onOpenCreate} />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section: WhatsApp Companion Assistant (Connected to Database)
-// ---------------------------------------------------------------------------
-function AssistantSection({ account, botNumber }: { account: Account; botNumber: string }) {
-  const historyQuery = useAccountMessages();
-  const sendMutation = useSendAssistantCommand();
-  const [localTranscript, setLocalTranscript] = useState<
-    Array<{ sender: 'user' | 'bot'; text: string; time: string }>
-  >([]);
-  const [input, setInput] = useState('');
-
-  const serverMessages = (historyQuery.data ?? []).map((msg) => ({
-    sender: (msg.direction === 'inbound' ? 'user' : 'bot') as 'user' | 'bot',
-    text: msg.content,
-    time: new Intl.DateTimeFormat('ar-SA', { timeStyle: 'short' }).format(
-      new Date(msg.createdAt)
-    ),
-  }));
-
-  const welcomeMessage = {
-    sender: 'bot' as const,
-    text: account.website
-      ? `مرحباً بك! موقعك المتصل في قاعدة البيانات هو «${account.website.siteName}».\nيمكنك إرسال أوامر مباشرة لإضافة منتجات، تعديل ساعات العمل، أو الاستعلام عن الزيارات الحقيقية.`
-      : 'مرحباً بك في المساعد السريع المتصل بقاعدة البيانات! أنشئ موقعك أولاً من قسم «خدماتي وموقعي» ثم استخدم الأوامر السريعة هنا أو عبر واتساب.',
-    time: 'متصل',
-  };
-
-  const displayedMessages =
-    serverMessages.length > 0
-      ? [...serverMessages, ...localTranscript]
-      : [welcomeMessage, ...localTranscript];
-
-  const sendCommand = (cmd: string) => {
-    const cleanCmd = cmd.trim();
-    if (!cleanCmd || sendMutation.isPending) return;
-    const nowTime = new Intl.DateTimeFormat('ar-SA', { timeStyle: 'short' }).format(new Date());
-    setLocalTranscript((prev) => [...prev, { sender: 'user', text: cleanCmd, time: nowTime }]);
-    sendMutation.mutate(cleanCmd, {
-      onSuccess: (res) => {
-        setLocalTranscript((prev) => [
-          ...prev,
-          { sender: 'bot', text: res.reply, time: nowTime },
-        ]);
-      },
-    });
-  };
-
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    const text = input.trim();
-    setInput('');
-    sendCommand(text);
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-          مساعد واتساب السريع (Companion Assistant)
-        </h1>
-        <p className="mt-1 text-sm font-medium text-[#475569]" style={{ color: '#475569' }}>
-          متصل مباشرة بقاعدة بيانات موقعك لتنفيذ التعديلات النصية اللحظية وعرض الإحصائيات الفعلية.
-        </p>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Capabilities Card */}
-        <Card className="space-y-5 p-6">
-          <h2 className="text-base font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-            مهام المساعد السريع في واتساب والمنصة
-          </h2>
-
-          <div className="space-y-4">
-            <div
-              className="flex items-start gap-3.5 rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4"
-              style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}
-            >
-              <span
-                className="grid size-10 shrink-0 place-items-center rounded-xl border border-[#A7F3D0] bg-[#ECFDF5] text-[#047857]"
-                style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
-              >
-                <BadgeCheck size={18} />
-              </span>
-              <div>
-                <h3 className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-                  1. التحقق الآمن لمرة واحدة لكل جهاز
-                </h3>
-                <p
-                  className="mt-1 text-xs font-medium leading-5 text-[#475569]"
-                  style={{ color: '#475569' }}
-                >
-                  يوثّق ملكية رقمك في أول مرة فقط ويحفظ معرّف جهازك في قاعدة البيانات للدخول الفوري لاحقاً.
-                </p>
-              </div>
-            </div>
-
-            <div
-              className="flex items-start gap-3.5 rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4"
-              style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}
-            >
-              <span
-                className="grid size-10 shrink-0 place-items-center rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]"
-                style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-              >
-                <Pencil size={18} />
-              </span>
-              <div>
-                <h3 className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-                  2. تعديلات مباشرة في قاعدة البيانات
-                </h3>
-                <p
-                  className="mt-1 text-xs font-medium leading-5 text-[#475569]"
-                  style={{ color: '#475569' }}
-                >
-                  أرسل: «أضف منتج: قهوة مختصة 25 ر.س» أو «أوقات العمل: 9ص - 11م» ليتم حفظها فوراً في موقعك المنشور.
-                </p>
-              </div>
-            </div>
-
-            <div
-              className="flex items-start gap-3.5 rounded-2xl border border-[#CBD5E1] bg-[#F8FAFC] p-4"
-              style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1' }}
-            >
-              <span
-                className="grid size-10 shrink-0 place-items-center rounded-xl border border-[#C7D2FE] bg-[#EEF2FF] text-[#4338CA]"
-                style={{ backgroundColor: '#EEF2FF', borderColor: '#C7D2FE', color: '#4338CA' }}
-              >
-                <BarChart3 size={18} />
-              </span>
-              <div>
-                <h3 className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-                  3. إحصائيات الزيارات الحقيقية
-                </h3>
-                <p
-                  className="mt-1 text-xs font-medium leading-5 text-[#475569]"
-                  style={{ color: '#475569' }}
-                >
-                  اكتب: «كم زائر اليوم؟» ليعرض لك العدد الفعلي المسجل في جدول الزيارات بقاعدة البيانات.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {botNumber && (
-            <div
-              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#1E293B] bg-[#0B132B] p-4 text-white"
-              style={{ backgroundColor: '#0B132B', borderColor: '#1E293B', color: '#FFFFFF' }}
-            >
-              <div>
-                <p className="text-xs font-bold text-[#93C5FD]" style={{ color: '#93C5FD' }}>
-                  رقم بوت واتساب الرسمي المتصل:
-                </p>
-                <p
-                  dir="ltr"
-                  className="mt-0.5 text-right font-mono text-sm font-black text-white"
-                  style={{ color: '#FFFFFF' }}
-                >
-                  +{botNumber.replace(/[^\d]/g, '')}
-                </p>
-              </div>
-              <a
-                href={`https://wa.me/${botNumber.replace(/[^\d]/g, '')}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[#2563EB] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#1D4ED8]"
-                style={{ backgroundColor: '#2563EB', color: '#FFFFFF' }}
-              >
-                <MessageCircle size={15} />
-                <span>فتح محادثة البوت</span>
-              </a>
-            </div>
-          )}
-        </Card>
-
-        {/* Live Database-Backed Assistant Console */}
-        <Card className="flex h-[480px] flex-col overflow-hidden border border-[#CBD5E1]">
-          <div
-            className="flex items-center gap-3 border-b border-[#1E293B] bg-[#0B132B] px-5 py-3.5 text-white"
-            style={{ backgroundColor: '#0B132B', borderColor: '#1E293B', color: '#FFFFFF' }}
-          >
-            <span
-              className="grid size-9 place-items-center rounded-xl bg-[#2563EB] text-white"
-              style={{ backgroundColor: '#2563EB', color: '#FFFFFF' }}
-            >
-              <MessageSquare size={16} />
-            </span>
-            <div>
-              <p className="text-xs font-black text-white" style={{ color: '#FFFFFF' }}>
-                وحدة أوامر المساعد السريع المتصلة بالموقع
-              </p>
-              <p className="text-[11px] font-medium text-[#93C5FD]" style={{ color: '#93C5FD' }}>
-                أي أمر هنا يحدّث موقعك ويحفظ في سجل المحادثات
-              </p>
-            </div>
-          </div>
-
-          {/* Chat Messages */}
-          <div
-            className="flex-1 space-y-3 overflow-y-auto bg-[#F1F5F9] p-4"
-            style={{ backgroundColor: '#F1F5F9' }}
-          >
-            {displayedMessages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`flex ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}
-              >
-                <div
-                  className="max-w-[85%] rounded-2xl px-4 py-2.5 text-xs font-medium leading-6 shadow-xs"
-                  style={
-                    msg.sender === 'user'
-                      ? {
-                          backgroundColor: '#1D4ED8',
-                          color: '#FFFFFF',
-                        }
-                      : {
-                          backgroundColor: '#FFFFFF',
-                          borderColor: '#CBD5E1',
-                          color: '#0F172A',
-                        }
-                  }
-                >
-                  <p className="whitespace-pre-line">{msg.text}</p>
-                  <span
-                    className="mt-1 block text-left text-[9px] font-bold"
-                    style={{ color: msg.sender === 'user' ? '#BFDBFE' : '#64748B' }}
-                  >
-                    {msg.time}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Quick Command Suggestions */}
-          <div
-            className="flex flex-wrap gap-1.5 border-t border-[#E2E8F0] bg-white px-3 py-2.5"
-            style={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0' }}
-          >
-            {[
-              'كم زائر اليوم؟',
-              'أضف منتج: قهوة مختصة 25 ر.س',
-              'أوقات العمل: السبت - الخميس 9ص إلى 11م',
-            ].map((cmd) => (
-              <button
-                key={cmd}
-                type="button"
-                disabled={sendMutation.isPending}
-                onClick={() => sendCommand(cmd)}
-                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 text-[11px] font-bold text-[#334155] transition-colors hover:border-[#2563EB] hover:bg-[#EFF6FF] hover:text-[#1D4ED8] disabled:opacity-50"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
-              >
-                {cmd}
-              </button>
-            ))}
-          </div>
-
-          {/* Input Form */}
-          <form
-            onSubmit={handleSend}
-            className="flex items-center gap-2 border-t border-[#E2E8F0] bg-white p-3"
-            style={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0' }}
-          >
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="اكتب أمراً (مثال: أضف منتج: عسل سدر 120 ر.س)..."
-              className="h-10 flex-1 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-4 text-xs font-medium text-[#0F172A] outline-none focus:border-[#2563EB] focus:bg-white"
-              style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-            />
-            <button
-              type="submit"
-              disabled={sendMutation.isPending || !input.trim()}
-              className="grid size-10 place-items-center rounded-xl bg-[#1D4ED8] text-white transition-transform hover:bg-[#1E40AF] disabled:opacity-50"
-              style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-              aria-label="إرسال"
-            >
-              <Send size={16} />
-            </button>
-          </form>
-        </Card>
+        <iframe title="معاينة الموقع" src={src} className="min-h-0 flex-1 border-0 bg-white" />
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Section: Analytics (100% Real Database Metrics — Zero Fake Numbers)
+// Page
 // ---------------------------------------------------------------------------
-function AnalyticsSection({ account }: { account: Account }) {
-  const website = account.website;
-  const siteDoc = useSiteDocument();
-  const doc = siteDoc.data;
-  const collectionKey = doc?.collectionKey || 'items';
-  const rawList = doc?.jsonStructure?.[collectionKey];
-  const publishedItemsCount = Array.isArray(rawList) ? rawList.length : 0;
-  const visitsToday = website?.visitsToday ?? 0;
-  const visitsTotal = website?.visitsTotal ?? 0;
-  const remainingMessages = Math.max(0, account.freeMessagesLimit - account.freeMessagesUsed);
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-          لوحة الإحصائيات والتحليلات الفعليّة
-        </h1>
-        <p className="mt-1 text-sm font-medium text-[#475569]" style={{ color: '#475569' }}>
-          جميع الأرقام أدناه مسجلة فعلياً من قاعدة البيانات (جدول الزيارات وعناصر موقعك المنشورة) دون أي بيانات وهمية.
-        </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-6">
-          <span
-            className="grid size-11 place-items-center rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]"
-            style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-          >
-            <Eye size={20} />
-          </span>
-          <p
-            className="mt-4 font-mono text-3xl font-black tabular-nums text-[#0F172A]"
-            style={{ color: '#0F172A' }}
-            data-testid="stat-visits-today"
-          >
-            {visitsToday}
-          </p>
-          <p className="mt-1 text-xs font-bold text-[#475569]" style={{ color: '#475569' }}>
-            زيارات اليوم الفعليّة
-          </p>
-        </Card>
-
-        <Card className="p-6">
-          <span
-            className="grid size-11 place-items-center rounded-xl border border-[#C7D2FE] bg-[#EEF2FF] text-[#4338CA]"
-            style={{ backgroundColor: '#EEF2FF', borderColor: '#C7D2FE', color: '#4338CA' }}
-          >
-            <BarChart3 size={20} />
-          </span>
-          <p
-            className="mt-4 font-mono text-3xl font-black tabular-nums text-[#0F172A]"
-            style={{ color: '#0F172A' }}
-            data-testid="stat-visits-total"
-          >
-            {visitsTotal}
-          </p>
-          <p className="mt-1 text-xs font-bold text-[#475569]" style={{ color: '#475569' }}>
-            إجمالي الزيارات الكلي
-          </p>
-        </Card>
-
-        <Card className="p-6">
-          <span
-            className="grid size-11 place-items-center rounded-xl border border-[#A7F3D0] bg-[#ECFDF5] text-[#047857]"
-            style={{ backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', color: '#047857' }}
-          >
-            <ShoppingBag size={20} />
-          </span>
-          <p
-            className="mt-4 font-mono text-3xl font-black tabular-nums text-[#0F172A]"
-            style={{ color: '#0F172A' }}
-            data-testid="stat-published-items"
-          >
-            {publishedItemsCount}
-          </p>
-          <p className="mt-1 text-xs font-bold text-[#475569]" style={{ color: '#475569' }}>
-            العناصر والخدمات المنشورة بالموقع
-          </p>
-        </Card>
-
-        <Card className="p-6">
-          <span
-            className="grid size-11 place-items-center rounded-xl border border-[#DDD6FE] bg-[#F5F3FF] text-[#6D28D9]"
-            style={{ backgroundColor: '#F5F3FF', borderColor: '#DDD6FE', color: '#6D28D9' }}
-          >
-            <MessageCircle size={20} />
-          </span>
-          <p
-            className="mt-4 font-mono text-3xl font-black tabular-nums text-[#0F172A]"
-            style={{ color: '#0F172A' }}
-            data-testid="stat-remaining-messages"
-          >
-            {remainingMessages}
-          </p>
-          <p className="mt-1 text-xs font-bold text-[#475569]" style={{ color: '#475569' }}>
-            الرصيد المتبقي من رسائل المساعد
-          </p>
-        </Card>
-      </div>
-
-      <Card
-        className="border-[#1E293B] bg-[#0B132B] p-6 text-white"
-        style={{ backgroundColor: '#0B132B', borderColor: '#1E293B', color: '#FFFFFF' }}
-      >
-        <h3 className="text-sm font-black text-[#38BDF8]" style={{ color: '#38BDF8' }}>
-          كيف يتم احتساب الزيارات؟
-        </h3>
-        <p className="mt-2 text-xs font-medium leading-6 text-[#CBD5E1]" style={{ color: '#CBD5E1' }}>
-          يتم تسجيل كل زيارة حقيقية لموقعك المنشور تلقائياً في جدول <code className="font-mono text-white">site_visits</code> داخل قاعدة البيانات عند فتح الزوار لرابط موقعك.
-        </p>
-      </Card>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section: Settings
-// ---------------------------------------------------------------------------
-function SettingsSection({
-  account,
-  onLogout,
-  loggingOut,
-}: {
-  account: Account;
-  onLogout: () => void;
-  loggingOut: boolean;
-}) {
-  const used = account.freeMessagesUsed;
-  const limit = Math.max(1, account.freeMessagesLimit);
-
-  return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-          إعدادات الحساب
-        </h1>
-        <p className="mt-1 text-sm font-medium text-[#475569]" style={{ color: '#475569' }}>
-          إدارة رقمك الموثق ورسائل المساعد والتحكم العام
-        </p>
-      </div>
-
-      <Card className="divide-y divide-[#E2E8F0]">
-        <div className="flex items-center justify-between p-6">
-          <span className="text-sm font-bold text-[#475569]" style={{ color: '#475569' }}>
-            رقم واتساب المتصل والموثق
-          </span>
-          <span
-            dir="ltr"
-            className="font-mono text-sm font-black text-[#1D4ED8]"
-            style={{ color: '#1D4ED8' }}
-          >
-            +{account.phoneNumber}
-          </span>
-        </div>
-        <div className="flex items-center justify-between p-6">
-          <span className="text-sm font-bold text-[#475569]" style={{ color: '#475569' }}>
-            تاريخ الإنشاء
-          </span>
-          <span className="text-sm font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-            {new Intl.DateTimeFormat('ar-SA', { dateStyle: 'long' }).format(
-              new Date(account.createdAt)
-            )}
-          </span>
-        </div>
-        <div className="p-6">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-bold text-[#475569]" style={{ color: '#475569' }}>
-              رسائل مساعد واتساب السريع
-            </span>
-            <span
-              className="font-mono font-black tabular-nums text-[#0F172A]"
-              style={{ color: '#0F172A' }}
-            >
-              {used} / {limit}
-            </span>
-          </div>
-          <div
-            className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#E2E8F0]"
-            style={{ backgroundColor: '#E2E8F0' }}
-          >
-            <div
-              className="h-full rounded-full bg-[#1D4ED8] transition-all duration-700"
-              style={{
-                width: `${Math.min(100, (used / limit) * 100)}%`,
-                backgroundColor: '#1D4ED8',
-              }}
-            />
-          </div>
-        </div>
-      </Card>
-
-      <button
-        onClick={onLogout}
-        disabled={loggingOut}
-        className="inline-flex items-center gap-2 rounded-xl border border-[#FECDD3] bg-[#FFF1F2] px-5 py-3 text-sm font-bold text-[#BE123C] transition-colors hover:bg-[#FFE4E6] disabled:opacity-60"
-        style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#BE123C' }}
-        data-testid="button-logout"
-      >
-        <LogOut size={16} />
-        <span>تسجيل الخروج من الجلسة</span>
-      </button>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Shell: Dashboard Main Controller
-// ---------------------------------------------------------------------------
 export default function Dashboard() {
-  const [location, navigate] = useLocation();
+  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const account = useAccount();
   const logout = useLogout();
-  const whatsapp = useGetPublicWhatsapp({ query: { queryKey: getGetPublicWhatsappQueryKey() } });
-  const botNumber = whatsapp.data?.whatsappNumber || '966500000000';
+  const saveSite = useSaveSite();
+  const deleteSite = useDeleteSite();
+  const activeAccount = account.data || getLocalAccount();
+
+  const sites = useMemo(
+    () => (activeAccount?.websites?.length ? activeAccount.websites : activeAccount?.website ? [activeAccount.website] : []),
+    [activeAccount],
+  );
+
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<Record<string, Session>>({});
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const [previewUser, setPreviewUser] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState('store');
-  const [selectedStyle, setSelectedStyle] = useState<SiteStyle>('modern');
-  const [initialSiteName, setInitialSiteName] = useState('');
-  const menuRef = useRef<HTMLDivElement>(null);
-  const section = location.split('/')[2] ?? 'home';
+  const [input, setInput] = useState('');
+  const [hydrateTick, setHydrateTick] = useState(0);
+  const idRef = useRef(1);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const activeAccount =
-    account.data || getLocalAccount() || registerOrLoginWithPhone('966500000000');
+  const msg = useCallback((role: Msg['role'], text: string, chips?: Chip[]): Msg => ({ id: idRef.current++, role, text, chips }), []);
 
-  const openCreateWithTemplate = (template = 'store') => {
-    setSelectedTemplate(template);
-    if (section === 'home') {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } else {
-      setCreateModalOpen(true);
-    }
-  };
+  const patch = useCallback((key: string, fn: (s: Session) => Session) => {
+    setSessions((prev) => ({ ...prev, [key]: fn(prev[key] ?? emptySession()) }));
+  }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!account.isLoading && !activeAccount) navigate('/login', { replace: true });
+  }, [account.isLoading, activeAccount, navigate]);
+
+  // --- Opening / creating ----------------------------------------------------
+
+  const typePickerMessages = useCallback(
+    (text?: string): Msg[] => [
+      msg('bot', text ?? 'ماذا تريد أن تنشئ؟ اختر نوع الخدمة، أو اكتب بكلماتك مثل «أبغى أسوي منيو لمطعمي».', TYPE_CHIPS),
+    ],
+    [msg],
+  );
+
+  const openNew = useCallback(() => {
+    setSessions((prev) => (prev[NEW_KEY] ? prev : { ...prev, [NEW_KEY]: { ...emptySession(), messages: typePickerMessages() } }));
+    setActiveKey(NEW_KEY);
+  }, [typePickerMessages]);
+
+  const startDraft = useCallback(
+    (templateId: string, siteName?: string) => {
+      const draft = newDraft(templateId, { siteName });
+      const tpl = getTemplate(templateId);
+      setSessions((prev) => {
+        const old = prev[NEW_KEY];
+        return {
+          ...prev,
+          [NEW_KEY]: {
+            draft,
+            baseline: null,
+            version: '',
+            messages: [
+              msg('bot', `جهّزت لك «${tpl.label}» بمحتوى مبدئي. انقر على أي نص في البطاقة لتعديله، أو اكتب طلبك في الأسفل.`),
+            ],
+            history: old?.draft ? [...old.history, old.draft].slice(-30) : [],
+            flash: [],
+          },
+        };
+      });
+      setActiveKey(NEW_KEY);
+    },
+    [msg],
+  );
+
+  // First load: pick the service to show (or the create flow for new accounts).
+  useEffect(() => {
+    if (!activeAccount || activeKey !== null) return;
     const params = new URLSearchParams(window.location.search);
-    const tpl = params.get('template');
-    const st = params.get('style') as SiteStyle | null;
-    const nm = params.get('name');
-    if (tpl) setSelectedTemplate(tpl);
-    if (st && ['classic', 'modern', 'cinematic', 'app'].includes(st)) {
-      setSelectedStyle(st);
+    if (params.get('create') === '1') {
+      const wanted = params.get('template');
+      if (wanted && TEMPLATES.some((t) => t.id === wanted)) startDraft(wanted);
+      else openNew();
+      return;
     }
-    if (nm) setInitialSiteName(nm);
-    if (params.get('create') === '1' && section !== 'home') {
-      setCreateModalOpen(true);
+    const remembered = getActiveSiteUsername();
+    const pick = sites.find((s) => s.username === remembered)?.username ?? sites[0]?.username;
+    if (pick) {
+      setActiveSiteUsername(pick);
+      setActiveKey(pick);
+    } else {
+      openNew();
     }
-  }, [section]);
+  }, [activeAccount, activeKey, sites, openNew, startDraft]);
 
-  const doLogout = () => {
-    logout.mutate(undefined, {
-      onSettled: () => navigate('/login', { replace: true }),
+  // Hydrate a saved service into its session once its document arrives. Local
+  // unsaved edits always win over a refetch.
+  const doc = useSiteDocument(activeKey && activeKey !== NEW_KEY ? activeKey : undefined);
+  useEffect(() => {
+    const data = doc.data;
+    if (!activeKey || activeKey === NEW_KEY || !data || data.username !== activeKey) return;
+    setSessions((prev) => {
+      const cur = prev[activeKey];
+      if (cur?.draft && cur.baseline && isDirty(cur.draft, cur.baseline)) return prev;
+      if (cur?.draft && cur.version === data.updatedAt) return prev;
+      const d = toDraft(data);
+      return {
+        ...prev,
+        [activeKey]: {
+          ...(cur ?? emptySession()),
+          draft: d,
+          baseline: d,
+          version: data.updatedAt,
+          messages: cur?.messages.length
+            ? cur.messages
+            : [msg('bot', 'أهلاً بك! يمكنك النقر مباشرة على أي عنصر في البطاقة لتعديله، أو كتابة طلبك في الأسفل.')],
+        },
+      };
     });
+  }, [doc.data, activeKey, hydrateTick, msg]);
+
+  const session = activeKey ? sessions[activeKey] : undefined;
+  const draft = session?.draft ?? null;
+  const dirty = !!(session?.draft && session.baseline && isDirty(session.draft, session.baseline));
+  const activeSite = sites.find((s) => s.username === activeKey);
+
+  const selectKey = (key: string) => {
+    if (key !== NEW_KEY) setActiveSiteUsername(key);
+    setActiveKey(key);
+    setMenuOpen(false);
+    scrollRef.current?.scrollTo({ top: 0 });
   };
 
-  const handleCreatedSuccess = (createdDoc: SiteDocument) => {
-    setActiveSiteUsername(createdDoc.username);
-    const updatedAccount = getLocalAccount();
-    if (updatedAccount) {
-      queryClient.setQueryData(accountQueryKey, updatedAccount);
-    }
-    queryClient.setQueryData(siteQueryKey, createdDoc);
-    queryClient.setQueryData(['account', 'site', createdDoc.username], createdDoc);
-    void queryClient.invalidateQueries({ queryKey: accountQueryKey });
-    navigate('/dashboard/site');
-  };
+  // --- Editing ---------------------------------------------------------------
 
-  const websitesList =
-    activeAccount.websites && activeAccount.websites.length > 0
-      ? activeAccount.websites
-      : activeAccount.website
-      ? [activeAccount.website]
-      : [];
+  // Direct edits on the card (typing, color dots, add/remove rows).
+  const edit = useCallback(
+    (next: Draft) => {
+      if (!activeKey) return;
+      patch(activeKey, (s) => (s.draft ? { ...s, history: [...s.history, s.draft].slice(-30), draft: next, flash: [], flashField: undefined } : s));
+    },
+    [activeKey, patch],
+  );
 
-  // Unified ORXAI Studio Chat Hub for managing the entire platform
-  if (section !== '_legacy_shell') {
-    return (
-      <ConversationalServiceCreator
-        isModal={false}
-        initialTemplate={selectedTemplate}
-        initialStyle={selectedStyle}
-        initialSiteName={initialSiteName}
-        defaultPhone={activeAccount.phoneNumber}
-        publishedSitesCount={websitesList.length}
-        account={activeAccount}
-        websites={websitesList}
-        activeSection={section}
-        botNumber={botNumber}
-        onLogout={doLogout}
-        loggingOut={logout.isPending}
-        onNavigateSection={(targetSec) => {
-          if (targetSec === 'home') {
-            navigate('/dashboard');
-          } else {
-            navigate(`/dashboard/${targetSec}`);
+  const undo = useCallback(() => {
+    if (!activeKey) return;
+    patch(activeKey, (s) => {
+      const prev = s.history[s.history.length - 1];
+      if (!prev) return s;
+      return { ...s, draft: prev, history: s.history.slice(0, -1), flash: [], flashField: undefined, messages: [...s.messages, msg('bot', 'تراجعت عن آخر تعديل.')] };
+    });
+  }, [activeKey, patch, msg]);
+
+  const push = useCallback(
+    (key: string, ...messages: Msg[]) => patch(key, (s) => ({ ...s, messages: [...s.messages, ...messages].slice(-40) })),
+    [patch],
+  );
+
+  const runAction = useCallback(
+    (key: string, action: Action, current: Draft | null) => {
+      const requireDraft = (): Draft | null => {
+        if (current) return current;
+        push(key, msg('bot', 'ابدأ أولاً بإنشاء خدمة — اختر نوعها:', TYPE_CHIPS));
+        return null;
+      };
+
+      switch (action.kind) {
+        case 'create': {
+          if (action.templateId) startDraft(action.templateId, action.siteName);
+          else {
+            setSessions((prev) => ({ ...prev, [NEW_KEY]: prev[NEW_KEY]?.draft ? prev[NEW_KEY] : { ...emptySession(), messages: typePickerMessages('ما نوع الخدمة التي تريد إنشاءها؟') } }));
+            setActiveKey(NEW_KEY);
           }
-        }}
-        onSuccess={handleCreatedSuccess}
-      />
+          return;
+        }
+        case 'undo':
+          undo();
+          return;
+        case 'stats': {
+          const site = sites.find((s) => s.username === key);
+          push(
+            key,
+            msg(
+              'bot',
+              site
+                ? `📊 «${site.siteName}»: زيارات اليوم ${site.visitsToday}، وإجمالي الزيارات ${site.visitsTotal}${typeof site.submissionsCount === 'number' ? `، والردود المستلمة ${site.submissionsCount}` : ''}.`
+                : 'انشر الخدمة أولاً لتبدأ الزيارات بالظهور هنا.',
+            ),
+          );
+          return;
+        }
+        case 'openColors':
+          push(key, msg('bot', 'اختر لون الهوية — سيتغير في البطاقة فوراً:', COLOR_CHIPS));
+          return;
+        case 'openStyles':
+          push(
+            key,
+            msg('bot', 'اختر النمط:', STYLE_ORDER.map((s) => ({ label: STYLE_NAMES[s], action: { t: 'style', style: s } as ChipAction }))),
+          );
+          return;
+        case 'unknown':
+          push(key, msg('bot', 'لم أفهم الطلب تماماً. جرّب مثلاً:', HELP_EXAMPLES.map((text) => ({ label: text, action: { t: 'send', text } as ChipAction }))));
+          return;
+        default: {
+          const base = requireDraft();
+          if (!base) return;
+          const result = applyAction(base, action);
+          if (!result.changed) {
+            push(key, msg('bot', result.reply || 'لا يوجد ما يتغير.'));
+            return;
+          }
+          patch(key, (s) => ({
+            ...s,
+            history: s.draft ? [...s.history, s.draft].slice(-30) : s.history,
+            draft: result.draft,
+            flash: result.touched,
+            flashField: result.field,
+            messages: [...s.messages, msg('bot', result.reply, [{ label: 'تراجع', action: { t: 'undo' } }])].slice(-40),
+          }));
+          window.setTimeout(() => patch(key, (s) => ({ ...s, flash: [], flashField: undefined })), 1900);
+          if (result.touched.length) {
+            window.requestAnimationFrame(() =>
+              document.getElementById(`studio-item-${result.touched[0]}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+            );
+          }
+        }
+      }
+    },
+    [msg, patch, push, sites, startDraft, typePickerMessages, undo],
+  );
+
+  const send = useCallback(
+    (raw: string) => {
+      const text = raw.trim();
+      if (!text || !activeKey) return;
+      const current = sessionsRef.current[activeKey]?.draft ?? null;
+      push(activeKey, msg('user', text));
+      const sectionNames = current ? groupItems(getItems(current)).map((g) => g.name) : [];
+      runAction(activeKey, interpret(text, { sectionNames, hasSite: !!current }), current);
+    },
+    [activeKey, msg, push, runAction],
+  );
+
+  const onChip = useCallback(
+    (chip: Chip) => {
+      if (!activeKey) return;
+      const current = sessionsRef.current[activeKey]?.draft ?? null;
+      const a = chip.action;
+      switch (a.t) {
+        case 'template':
+          startDraft(a.id);
+          break;
+        case 'send':
+          send(a.text);
+          break;
+        case 'color':
+          runAction(activeKey, { kind: 'color', hex: a.hex, label: a.label }, current);
+          break;
+        case 'style':
+          runAction(activeKey, { kind: 'style', style: a.style }, current);
+          break;
+        case 'undo':
+          undo();
+          break;
+        case 'reload':
+          patch(activeKey, (s) => ({ ...s, draft: null, baseline: null, version: '' }));
+          void queryClient.invalidateQueries({ queryKey: siteQueryKey });
+          setHydrateTick((n) => n + 1);
+          break;
+        case 'copy':
+          void navigator.clipboard?.writeText(a.text).catch(() => undefined);
+          break;
+      }
+    },
+    [activeKey, patch, queryClient, runAction, send, startDraft, undo],
+  );
+
+  // --- Saving ----------------------------------------------------------------
+
+  const afterSaveMove = useCallback(
+    (fromKey: string, saved: SiteDocument, note: string) => {
+      const d = toDraft(saved);
+      setSessions((prev) => {
+        const old = prev[fromKey] ?? emptySession();
+        const { [fromKey]: _removed, ...rest } = prev;
+        return {
+          ...rest,
+          [saved.username]: {
+            draft: d,
+            baseline: d,
+            version: saved.updatedAt,
+            messages: [...old.messages, msg('bot', note, [{ label: 'نسخ الرابط', action: { t: 'copy', text: siteUrl(saved.username) } }])].slice(-40),
+            history: [],
+            flash: [],
+          },
+        };
+      });
+      setActiveSiteUsername(saved.username);
+      setActiveKey(saved.username);
+      queryClient.setQueryData(siteQueryKey, saved);
+      queryClient.setQueryData([...siteQueryKey, saved.username], saved);
+      void queryClient.invalidateQueries({ queryKey: accountQueryKey });
+    },
+    [msg, queryClient],
+  );
+
+  // Returns the saved service's username, or null on failure.
+  const save = useCallback(async (): Promise<string | null> => {
+    const key = activeKey;
+    const s = key ? sessionsRef.current[key] : undefined;
+    if (!key || !s?.draft) return null;
+    const d = s.draft;
+    setSaving(true);
+    try {
+      if (d.isNew) {
+        const created = await createWebsiteInPlatform({
+          siteName: d.siteName.trim() || getTemplate(d.templateId).starter.siteName,
+          templateId: d.templateId,
+          templateStyle: styleOf(d),
+          themeColor: d.themeColor,
+          darkMode: d.structure.darkMode === true,
+          showBranding: d.showBranding,
+          tagline: str(d.structure.tagline),
+          headline: str(d.structure.headline),
+          description: str(d.structure.description),
+          initialItems: getItems(d).map((it) => ({
+            name: it.name,
+            title: it.title,
+            price: it.price,
+            duration: it.duration,
+            category: it.category,
+            description: it.description,
+            image: it.image,
+          })),
+        });
+        afterSaveMove(key, created, 'نُشرت خدمتك ✓ يمكنك الآن مشاركة الرابط، وتعديلها بالنقر أو بالكتابة في أي وقت.');
+        setJustSaved(true);
+        window.setTimeout(() => setJustSaved(false), 2200);
+        return created.username;
+      }
+      const saved = await saveSite.mutateAsync({
+        id: d.id,
+        baseUpdatedAt: s.version,
+        username: slugifyUsername(d.username.trim() || d.siteName.trim()),
+        siteName: d.siteName,
+        templateId: d.templateId,
+        themeColor: d.themeColor,
+        showBranding: d.showBranding,
+        jsonStructure: d.structure,
+      });
+      afterSaveMove(key, saved, 'تم حفظ التغييرات ونشرها على موقعك.');
+      setJustSaved(true);
+      window.setTimeout(() => setJustSaved(false), 2200);
+      return saved.username;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && !err.message.includes('الرابط')) {
+        push(key, msg('bot', 'عُدّلت هذه الخدمة من مكان آخر (مثل واتساب) أثناء عملك. حمّل آخر نسخة لتجنّب فقدان أي تغيير، ثم أعد تعديلك.', [{ label: 'تحميل آخر نسخة', action: { t: 'reload' } }]));
+      } else {
+        push(key, msg('bot', err instanceof Error && err.message ? err.message : 'تعذّر الحفظ. حاول مرة أخرى.'));
+      }
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  }, [activeKey, afterSaveMove, msg, push, saveSite]);
+
+  const openPreview = useCallback(async () => {
+    const s = activeKey ? sessionsRef.current[activeKey] : undefined;
+    if (!s?.draft) return;
+    const needsSave = s.draft.isNew || (s.baseline ? isDirty(s.draft, s.baseline) : false);
+    const username = needsSave ? await save() : s.draft.username;
+    if (username) setPreviewUser(username);
+  }, [activeKey, save]);
+
+  const removeService = useCallback(async () => {
+    const key = activeKey;
+    if (!key || key === NEW_KEY) return;
+    await deleteSite.mutateAsync(key);
+    const rest = sites.filter((s) => s.username !== key);
+    setSessions((prev) => {
+      const { [key]: _gone, ...others } = prev;
+      return others;
+    });
+    if (rest[0]) {
+      setActiveSiteUsername(rest[0].username);
+      setActiveKey(rest[0].username);
+    } else {
+      setActiveKey(null); // re-runs the first-load effect → create flow
+    }
+  }, [activeKey, deleteSite, sites]);
+
+  const doLogout = () => logout.mutate(undefined, { onSettled: () => navigate('/login', { replace: true }) });
+
+  // Keep the newest message in view while there is no card (create flow).
+  useEffect(() => {
+    if (!draft) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, [session?.messages.length, draft]);
+
+  // --- Render ------------------------------------------------------------------
+
+  if (account.isLoading) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center" style={{ backgroundColor: '#F8FAFC' }} dir="rtl">
+        <Loader2 className="animate-spin" size={28} style={{ color: '#2563EB' }} />
+      </div>
     );
   }
+  if (!activeAccount) return null;
 
-  const initials = activeAccount.phoneNumber.slice(-2) || '··';
+  const messages = session?.messages ?? [];
+  const lastBotIndex = [...messages].map((m) => m.role).lastIndexOf('bot');
+  const lastBot = lastBotIndex > 0 ? messages[lastBotIndex] : undefined;
+  const lastUser = lastBotIndex > 0 && messages[lastBotIndex - 1]?.role === 'user' ? messages[lastBotIndex - 1] : undefined;
+  const tpl = draft ? getTemplate(draft.templateId) : null;
+
+  const quickChips: Chip[] = draft && tpl
+    ? [
+        { label: 'تغيير الألوان', action: { t: 'send', text: 'غيّر الألوان' } },
+        ...(tpl.hasSections ? [{ label: '+ إضافة قسم جديد', action: { t: 'send', text: 'أضف قسم جديد' } } as Chip] : []),
+        ...(tpl.hasPrice ? [{ label: 'ضبط الأسعار', action: { t: 'send', text: 'ضبط الأسعار' } } as Chip] : []),
+      ]
+    : [];
+
+  const onQuickChip = (chip: Chip) => {
+    if (chip.action.t === 'send' && chip.action.text === 'ضبط الأسعار' && activeKey) {
+      push(activeKey, msg('bot', 'كم تريد أن تغيّر الأسعار؟ أو اكتب رقماً مثل «زد الأسعار 3 ريال».', PRICE_CHIPS));
+      return;
+    }
+    onChip(chip);
+  };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const value = input;
+    setInput('');
+    send(value);
+  };
+
+  const tabs = [
+    ...sites.map((s) => ({ key: s.username, label: `${s.siteName} - ${getTemplate(s.templateId).label}` })),
+    // Just-published service whose account refetch hasn't landed yet.
+    ...(activeKey && activeKey !== NEW_KEY && draft && tpl && !sites.some((s) => s.username === activeKey)
+      ? [{ key: activeKey, label: `${draft.siteName} - ${tpl.label}` }]
+      : []),
+    ...(activeKey === NEW_KEY ? [{ key: NEW_KEY, label: 'خدمة جديدة' }] : []),
+  ];
 
   return (
-    <div
-      dir="rtl"
-      className="min-h-[100dvh] bg-[#F8FAFC] font-sans text-[#0F172A]"
-      style={{ backgroundColor: '#F8FAFC', color: '#0F172A' }}
-    >
-      {/* Top Header */}
-      <header
-        className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white"
-        style={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0' }}
-      >
-        <div className="mx-auto flex h-18 max-w-7xl items-center justify-between px-4 md:px-8">
-          <div className="flex items-center gap-4">
-            <Brand href="/dashboard" />
-            <span
-              className="hidden text-xs font-extrabold text-[#475569] sm:inline-block"
-              style={{ color: '#475569' }}
-            >
-              / استوديو المنصة
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
+    <div dir="rtl" className="flex h-[100dvh] flex-col font-sans" style={{ backgroundColor: '#F8FAFC', color: '#0F172A' }}>
+      {/* Header */}
+      <header className="z-30 border-b bg-white" style={{ borderColor: '#E2E8F0' }}>
+        <div className="mx-auto flex h-16 w-full max-w-2xl items-center gap-2 px-4">
+          <Brand href="/" />
+          <div className="ms-auto flex items-center gap-2">
             <button
-              onClick={() => openCreateWithTemplate('store')}
-              className="hidden h-10 items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-4 text-xs font-bold text-white shadow-xs transition-colors hover:bg-[#1E40AF] sm:inline-flex"
-              style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+              type="button"
+              onClick={openNew}
+              className="inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-xs font-extrabold text-white shadow-[0_8px_18px_-8px_rgba(37,99,235,0.8)] hover:bg-[#1D4ED8]"
+              style={{ backgroundColor: '#2563EB' }}
+              data-testid="button-new-service"
             >
               <Plus size={15} />
-              <span>خدمة جديدة</span>
+              إنشاء خدمة جديدة
             </button>
-
-            <div className="relative" ref={menuRef}>
+            <div className="relative">
               <button
-                onClick={() => setMenuOpen((open) => !open)}
-                className="flex items-center gap-2.5 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] py-1.5 pl-3.5 pr-1.5 transition-colors hover:bg-[#E2E8F0]"
-                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                data-testid="button-account-menu"
+                type="button"
+                onClick={() => setMenuOpen((v) => !v)}
                 aria-expanded={menuOpen}
+                aria-label="الحساب"
+                className="grid size-10 place-items-center rounded-full font-mono text-xs font-black text-white"
+                style={{ backgroundColor: '#0F172A' }}
               >
-                <span
-                  className="hidden font-mono text-xs font-bold text-[#334155] sm:block"
-                  style={{ color: '#334155' }}
-                  dir="ltr"
-                >
-                  {maskPhone(activeAccount.phoneNumber)}
-                </span>
-                <span
-                  className="grid size-8 place-items-center rounded-lg bg-[#0B132B] font-mono text-xs font-black text-white"
-                  style={{ backgroundColor: '#0B132B', color: '#FFFFFF' }}
-                >
-                  {initials}
-                </span>
+                {activeAccount.phoneNumber.slice(-2)}
               </button>
               {menuOpen && (
-                <div
-                  className="absolute left-0 top-[calc(100%+8px)] w-64 rounded-2xl border border-[#CBD5E1] bg-white p-2 shadow-xl animate-[acct-fade-up_.2s_ease_both]"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-                >
-                  <div
-                    className="border-b border-[#E2E8F0] px-4 py-3"
-                    style={{ borderColor: '#E2E8F0' }}
-                  >
-                    <p className="text-xs font-bold text-[#64748B]" style={{ color: '#64748B' }}>
-                      حسابك الموثق
-                    </p>
-                    <p
-                      dir="ltr"
-                      className="mt-0.5 text-right font-mono text-sm font-black text-[#0F172A]"
-                      style={{ color: '#0F172A' }}
-                    >
-                      +{activeAccount.phoneNumber}
-                    </p>
-                  </div>
-                  <Link
-                    href="/"
-                    className="mt-1 flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-[#334155] transition-colors hover:bg-[#F1F5F9]"
-                    style={{ color: '#334155' }}
-                  >
+                <div className="absolute left-0 top-[calc(100%+8px)] z-40 w-56 rounded-2xl border bg-white p-2 shadow-xl" style={{ borderColor: '#E2E8F0' }}>
+                  <p dir="ltr" className="px-3 py-2 text-right font-mono text-xs font-bold" style={{ color: '#64748B' }}>
+                    +{activeAccount.phoneNumber}
+                  </p>
+                  <Link href="/" className="block rounded-xl px-3 py-2 text-xs font-bold hover:bg-[#F1F5F9]">
                     الصفحة الرئيسية للمنصة
                   </Link>
-                  <button
-                    onClick={doLogout}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-4 py-2.5 text-xs font-bold text-[#BE123C] transition-colors hover:bg-[#FFF1F2]"
-                    style={{ color: '#BE123C' }}
-                  >
-                    <LogOut size={16} />
-                    <span>تسجيل الخروج</span>
+                  <button type="button" onClick={doLogout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-[#BE123C] hover:bg-[#FEF2F2]">
+                    <LogOut size={14} />
+                    تسجيل الخروج
                   </button>
                 </div>
               )}
             </div>
           </div>
         </div>
+
+        {/* Service context switcher */}
+        {tabs.length > 0 && (
+          <nav aria-label="خدماتي" className="border-t" style={{ borderColor: '#F1F5F9' }}>
+            <div className="mx-auto max-w-2xl">
+              <ul className="no-scrollbar flex gap-2 overflow-x-auto px-4 py-2.5">
+                {tabs.map((t) => {
+                  const active = t.key === activeKey;
+                  const s = sessions[t.key];
+                  const unsaved = !!(s?.draft && (s.draft.isNew || (s.baseline && isDirty(s.draft, s.baseline))));
+                  return (
+                    <li key={t.key} className="shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => selectKey(t.key)}
+                        aria-current={active ? 'page' : undefined}
+                        className="relative inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-full border px-4 text-[13px] font-bold transition-colors"
+                        style={active ? { backgroundColor: '#0F172A', color: '#FFFFFF', borderColor: '#0F172A' } : { backgroundColor: '#FFFFFF', color: '#0F172A', borderColor: '#CBD5E1' }}
+                      >
+                        {t.label}
+                        {unsaved && <span className="size-1.5 rounded-full" style={{ backgroundColor: '#F59E0B' }} aria-label="غير محفوظ" />}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </nav>
+        )}
       </header>
 
-      {/* Main Workspace layout */}
-      <div className="mx-auto flex max-w-7xl gap-8 px-4 pb-28 pt-6 md:px-8 md:pb-12 md:pt-8">
-        {/* Desktop Sidebar Navigation */}
-        <nav className="sticky top-24 hidden h-fit w-60 shrink-0 md:block" aria-label="التنقل">
-          <div
-            className="rounded-2xl border border-[#CBD5E1] bg-white p-2.5 shadow-2xs"
-            style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
-          >
-            <ul className="space-y-1">
-              {NAV.map(({ href, key, label, icon: Icon }) => {
-                const active = key === section || (key === 'services' && section === 'site');
-                return (
-                  <li key={key}>
-                    <Link
-                      href={href}
-                      className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold transition-all"
-                      style={
-                        active
-                          ? {
-                              backgroundColor: '#0B132B',
-                              color: '#FFFFFF',
-                            }
-                          : {
-                              backgroundColor: 'transparent',
-                              color: '#334155',
-                            }
-                      }
-                      data-testid={`nav-${key}`}
-                    >
-                      <Icon size={18} style={{ color: active ? '#38BDF8' : '#64748B' }} />
-                      <span>{label}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </nav>
-
-        {/* Section View */}
-        <main className="min-w-0 flex-1" data-testid={`section-${section}`}>
-          {section === 'site' ? (
-            <SiteEditor />
-          ) : section === 'services' ? (
-            <ServicesSection account={activeAccount} onOpenCreate={openCreateWithTemplate} />
-          ) : section === 'assistant' ? (
-            <AssistantSection account={activeAccount} botNumber={botNumber} />
-          ) : section === 'analytics' ? (
-            <AnalyticsSection account={activeAccount} />
-          ) : section === 'settings' ? (
-            <SettingsSection
-              account={activeAccount}
-              onLogout={doLogout}
-              loggingOut={logout.isPending}
-            />
+      {/* Conversation + live canvas */}
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-2xl space-y-4 px-4 py-5">
+          {!session || (!draft && activeKey !== NEW_KEY) ? (
+            <div className="flex items-center justify-center py-16" aria-live="polite">
+              <Loader2 className="animate-spin" size={24} style={{ color: '#2563EB' }} />
+            </div>
+          ) : !draft ? (
+            messages.map((m) => <Bubble key={m.id} msg={m} onPick={onChip} grid />)
           ) : (
-            <HomeSection account={activeAccount} onOpenCreate={openCreateWithTemplate} />
+            <>
+              {messages[0] && <Bubble msg={{ ...messages[0], chips: undefined }} onPick={onChip} />}
+              <ServiceCard
+                draft={draft}
+                dirty={dirty}
+                saving={saving}
+                justSaved={justSaved}
+                flash={session.flash}
+                flashField={session.flashField}
+                canUndo={session.history.length > 0}
+                url={!draft.isNew ? siteUrl(draft.username) : undefined}
+                stats={activeSite ? { today: activeSite.visitsToday, total: activeSite.visitsTotal } : undefined}
+                onUndo={undo}
+                onChange={edit}
+                onSave={() => void save()}
+                onPreview={() => void openPreview()}
+                onDelete={() => void removeService()}
+                onNotice={(text) => activeKey && push(activeKey, msg('bot', text))}
+              />
+            </>
           )}
-        </main>
+        </div>
       </div>
 
-      {/* Mobile Bottom Navigation */}
-      <nav
-        className="fixed inset-x-3 bottom-3 z-30 flex justify-around rounded-2xl border border-[#CBD5E1] bg-white p-1.5 shadow-xl md:hidden"
-        style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
-        aria-label="التنقل"
-      >
-        {NAV.map(({ href, key, label, icon: Icon }) => {
-          const active = key === section || (key === 'services' && section === 'site');
-          return (
-            <Link
-              key={key}
-              href={href}
-              className="flex flex-1 flex-col items-center gap-0.5 rounded-xl py-2 text-[11px] font-bold transition-colors"
-              style={
-                active
-                  ? {
-                       backgroundColor: '#0B132B',
-                      color: '#FFFFFF',
-                    }
-                  : {
-                      backgroundColor: 'transparent',
-                      color: '#475569',
-                    }
-              }
-              data-testid={`bottomnav-${key}`}
+      {/* Dock: latest reply, quick actions, minimal input */}
+      <div className="z-20 border-t bg-white" style={{ borderColor: '#E2E8F0', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="mx-auto w-full max-w-2xl">
+          {draft && lastBot && (
+            <div className="space-y-1.5 px-4 pt-3" aria-live="polite">
+              {lastUser && (
+                <p className="truncate text-end text-[11px] font-bold" style={{ color: '#64748B' }}>
+                  {lastUser.text}
+                </p>
+              )}
+              <Bubble msg={lastBot} onPick={onChip} />
+            </div>
+          )}
+          {quickChips.length > 0 && (
+            <ul className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-1 pt-3">
+              {quickChips.map((c) => (
+                <li key={c.label} className="shrink-0">
+                  <ChipButton chip={c} onPick={onQuickChip} />
+                </li>
+              ))}
+            </ul>
+          )}
+          <form onSubmit={submit} className="flex items-center gap-2 px-4 pb-3 pt-2.5">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={draft ? 'اكتب ما تريد تعديله أو إضافته...' : 'اكتب ما تريد إنشاءه... مثل: أبغى أسوي منيو لمطعمي'}
+              aria-label="اكتب طلبك"
+              enterKeyHint="send"
+              autoComplete="off"
+              className="h-12 min-w-0 flex-1 rounded-2xl border bg-white px-4 text-sm font-semibold outline-none placeholder:text-[#94A3B8] focus:border-[#2563EB] focus:shadow-[0_0_0_3px_rgba(37,99,235,0.15)]"
+              style={{ borderColor: '#CBD5E1', color: '#0F172A' }}
+            />
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              aria-label="إرسال"
+              className="grid size-12 shrink-0 place-items-center rounded-2xl text-white disabled:opacity-40"
+              style={{ backgroundColor: '#2563EB' }}
             >
-              <Icon size={18} style={{ color: active ? '#38BDF8' : '#64748B' }} />
-              <span>{label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+              <ArrowLeft size={20} />
+            </button>
+          </form>
+        </div>
+      </div>
 
-      {/* Creation Modal */}
-      <CreateSiteModal
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        initialTemplate={selectedTemplate}
-        defaultPhone={activeAccount.phoneNumber}
-        onSuccess={handleCreatedSuccess}
-      />
+      {previewUser && <PreviewSheet username={previewUser} onClose={() => setPreviewUser(null)} />}
+      {justSaved && (
+        <div className="pointer-events-none fixed inset-x-0 top-20 z-50 flex justify-center">
+          <span className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-extrabold text-white shadow-lg" style={{ backgroundColor: '#0F172A' }}>
+            <Check size={14} style={{ color: '#34D399' }} />
+            تم الحفظ
+          </span>
+        </div>
+      )}
     </div>
   );
 }
