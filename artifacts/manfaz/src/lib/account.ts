@@ -1,10 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  getConversationalServiceOption,
-  resolveMultiServiceCommand,
-  type MultiServiceCommandResolution,
-  type PendingAssistantDisambiguation,
-} from '@/lib/conversational-creator';
+import type { AiCreate, AiOp } from '@/lib/studio';
+// Shadows the global on purpose: every storage call below becomes crash-proof.
+import { safeLocalStorage as localStorage } from '@/lib/safe-storage';
 
 // Platform-account API (sign-in via WhatsApp verification, "who am I", sign
 // out). Hand-written rather than orval-generated: these endpoints are
@@ -252,6 +249,12 @@ export async function loginWithTrustedDeviceServer(phoneInput?: string): Promise
   return loginWithTrustedDevice(targetPhone);
 }
 
+// Same raw string → same object. Callers use `account.data || getLocalAccount()`
+// during render and in effect dependency lists; returning a fresh JSON.parse
+// result every call made those effects re-run on every render.
+let localAccountRaw: string | null = null;
+let localAccountParsed: Account | null = null;
+
 export function getLocalAccount(): Account | null {
   if (typeof window === 'undefined') {
     return null;
@@ -259,9 +262,12 @@ export function getLocalAccount(): Account | null {
 
   const stored = localStorage.getItem(LOCAL_ACCOUNT_KEY);
   if (stored) {
+    if (stored === localAccountRaw && localAccountParsed) return localAccountParsed;
     try {
       const parsed = JSON.parse(stored) as Account;
       if (parsed && parsed.phoneNumber) {
+        localAccountRaw = stored;
+        localAccountParsed = parsed;
         return parsed;
       }
     } catch {
@@ -861,10 +867,20 @@ export async function createWebsiteInPlatform(input: CreateInPlatformInput): Pro
   }
 }
 
+// A request that never answers (dead mobile connection, stalled proxy) used to
+// hang forever: spinners never stopped and guards like the login poller's
+// `polling.current` stayed set, so the UI looked frozen. Every call is now
+// bounded; the AI assistant gets longer because Gemini can take a while.
+const REQUEST_TIMEOUT_MS = 20_000;
+const AI_REQUEST_TIMEOUT_MS = 45_000;
+
 async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method || 'GET').toUpperCase();
   const token = getSessionToken();
   const deviceId = getOrCreateDeviceId();
+  const controller = new AbortController();
+  const timeoutMs = path.startsWith('/api/me/assistant/ai') ? AI_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const headers: Record<string, string> = {
@@ -878,6 +894,7 @@ async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T>
       ...init,
       credentials: 'include',
       headers,
+      signal: controller.signal,
     });
 
     const contentType = response.headers.get('content-type') || '';
@@ -890,11 +907,7 @@ async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T>
       const body = (await response.json().catch(() => ({}))) as { error?: string };
       throw new ApiError(response.status, body.error || `Request failed (${response.status})`);
     }
-    const parsed = (await response.json()) as Record<string, unknown>;
-    if (parsed && parsed.standalone === true) {
-      throw new ApiError(502, 'Backend API in standalone mode');
-    }
-    return parsed as unknown as T;
+    return (await response.json()) as T;
   } catch (err) {
     // When offline, cross-origin cookies blocked, or backend endpoint unavailable:
     if (path === '/api/me' && method === 'GET') {
@@ -910,7 +923,10 @@ async function accountFetch<T>(path: string, init: RequestInit = {}): Promise<T>
       if (!doc) throw new ApiError(404, 'No site found');
       return doc as unknown as T;
     }
+    if (controller.signal.aborted) throw new ApiError(504, 'انتهت مهلة الاتصال. تحقق من الإنترنت وحاول مرة أخرى.');
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1191,10 +1207,7 @@ export function useSaveSite() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: SaveSiteInput) => {
-      const current =
-        (input.username ? getLocalSiteDocument(input.username) : null) ||
-        (input.id ? getLocalSiteDocument(input.id) : null) ||
-        getLocalSiteDocument();
+      const current = getLocalSiteDocument();
       try {
         const res = await accountFetch<SiteDocument & { droppedFields: string[] }>('/api/me/website', {
           method: 'PATCH',
@@ -1295,180 +1308,29 @@ export function useAccountMessages() {
   });
 }
 
-export function applyAssistantResolutionToLocalSite(
-  targetUsername: string,
-  resolution: MultiServiceCommandResolution
-): { reply: string; website: SiteDocument | null } {
-  const account = getLocalAccount();
-  const doc = getLocalSiteDocument(targetUsername);
-  if (!doc) {
-    return { reply: resolution.botReply, website: null };
-  }
-
-  const serviceOpt = getConversationalServiceOption(doc.templateId);
-  const serviceBadge = `«${doc.siteName}» (${serviceOpt.shortLabel})`;
-  let updatedDoc: SiteDocument = doc;
-  let reply = resolution.botReply;
-
-  if (resolution.intent === 'change_hours' && resolution.extractedValue) {
-    const nextHours = [{ day: 'أوقات العمل', time: resolution.extractedValue }];
-    updatedDoc = {
-      ...doc,
-      jsonStructure: { ...doc.jsonStructure, hours: nextHours },
-      updatedAt: new Date().toISOString(),
-    };
-    saveLocalSiteDocument(updatedDoc);
-    reply = `⏰ تم تحديث أوقات العمل لخدمة ${serviceBadge} بنجاح إلى: ${resolution.extractedValue}`;
-  } else if (resolution.intent === 'add_item' && resolution.extractedItem?.name) {
-    const colKey = doc.collectionKey || getCollectionKeyForTemplate(doc.templateId);
-    const existingList = Array.isArray(doc.jsonStructure?.[colKey])
-      ? [...(doc.jsonStructure[colKey] as Array<Record<string, unknown>>)]
-      : [];
-    const itemName = resolution.extractedItem.name.trim();
-    const itemPrice = resolution.extractedItem.price?.trim() || '';
-    const newItem: Record<string, unknown> =
-      doc.templateId === 'portfolio'
-        ? { title: itemName, description: '' }
-        : {
-            name: itemName,
-            ...(itemPrice ? { price: itemPrice } : {}),
-            ...(doc.templateId === 'survey' ? { duration: 'rating' } : {}),
-            description: '',
-          };
-    existingList.push(newItem);
-    updatedDoc = {
-      ...doc,
-      jsonStructure: { ...doc.jsonStructure, [colKey]: existingList },
-      updatedAt: new Date().toISOString(),
-    };
-    saveLocalSiteDocument(updatedDoc);
-    reply = `✅ تم حفظ «${itemName}»${itemPrice ? ` (${itemPrice})` : ''} في خدمة ${serviceBadge} بنجاح!`;
-  } else if (resolution.intent === 'update_description' && resolution.extractedValue) {
-    const newDesc = resolution.extractedValue.trim();
-    updatedDoc = {
-      ...doc,
-      jsonStructure: {
-        ...doc.jsonStructure,
-        description: newDesc,
-        tagline: newDesc.slice(0, 120),
-      },
-      updatedAt: new Date().toISOString(),
-    };
-    saveLocalSiteDocument(updatedDoc);
-    reply = `✨ تم تحديث الوصف والنبذة لخدمة ${serviceBadge} بنجاح.`;
-  } else if (
-    resolution.intent === 'change_color' &&
-    (resolution.extractedColor || typeof resolution.extractedDarkMode === 'boolean')
-  ) {
-    updatedDoc = {
-      ...doc,
-      themeColor: resolution.extractedColor || doc.themeColor,
-      jsonStructure: {
-        ...doc.jsonStructure,
-        ...(typeof resolution.extractedDarkMode === 'boolean'
-          ? { darkMode: resolution.extractedDarkMode }
-          : {}),
-      },
-      updatedAt: new Date().toISOString(),
-    };
-    saveLocalSiteDocument(updatedDoc);
-  } else if (resolution.intent === 'change_template' && resolution.extractedStyle) {
-    updatedDoc = {
-      ...doc,
-      jsonStructure: {
-        ...doc.jsonStructure,
-        templateStyle: resolution.extractedStyle,
-        ...(resolution.extractedStyle === 'cinematic' ? { darkMode: true } : {}),
-      },
-      updatedAt: new Date().toISOString(),
-    };
-    saveLocalSiteDocument(updatedDoc);
-  } else if (resolution.intent === 'change_contact' && resolution.extractedValue) {
-    const prevContact = (doc.jsonStructure?.contact as Record<string, unknown>) || {};
-    updatedDoc = {
-      ...doc,
-      jsonStructure: {
-        ...doc.jsonStructure,
-        contact: {
-          ...prevContact,
-          phone: resolution.extractedValue,
-          whatsapp: resolution.extractedValue,
-        },
-      },
-      updatedAt: new Date().toISOString(),
-    };
-    saveLocalSiteDocument(updatedDoc);
-  } else if (resolution.intent === 'query_stats') {
-    const colKey = doc.collectionKey || getCollectionKeyForTemplate(doc.templateId);
-    const listCount = Array.isArray(doc.jsonStructure?.[colKey])
-      ? (doc.jsonStructure[colKey] as unknown[]).length
-      : 0;
-    const subsCount = Array.isArray(doc.jsonStructure?.submissions)
-      ? (doc.jsonStructure.submissions as unknown[]).length
-      : 0;
-    const siteSummary = account?.websites?.find((w) => w.username === doc.username);
-    const today = siteSummary?.visitsToday ?? 0;
-    const total = siteSummary?.visitsTotal ?? 0;
-    const remaining = Math.max(
-      0,
-      (account?.freeMessagesLimit ?? 40) - (account?.freeMessagesUsed ?? 0)
-    );
-    reply = `📊 إحصائيات خدمة ${serviceBadge}:\n• زيارات اليوم: ${today} زيارة\n• إجمالي الزيارات الكلي: ${total} زيارة\n• عدد العناصر المنشورة: ${listCount}\n• الردود والطلبات المسجلة: ${subsCount}\n• الرصيد المتبقي من رسائل المساعد: ${remaining} رسالة.`;
-  }
-
-  return { reply, website: updatedDoc };
+export interface DashboardAiResponse {
+  reply: string;
+  ops: AiOp[];
+  create: AiCreate | null;
+  freeMessagesUsed: number;
+  freeMessagesLimit: number;
 }
 
-export interface SendAssistantCommandInput {
+// Gemini-backed assistant for the dashboard card. The server validates the
+// model's output and returns edit operations; nothing is saved until the user
+// presses save.
+export function askDashboardAssistant(input: {
   message: string;
-  targetUsername?: string;
-  pendingContext?: PendingAssistantDisambiguation;
+  draft: { siteName: string; templateId: string; themeColor: string; structure: Record<string, unknown> } | null;
+  history: Array<{ role: 'user' | 'bot'; text: string }>;
+}): Promise<DashboardAiResponse> {
+  return accountFetch<DashboardAiResponse>('/api/me/assistant/ai', { method: 'POST', body: JSON.stringify(input) });
 }
 
 export function useSendAssistantCommand() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: string | SendAssistantCommandInput) => {
-      const message = typeof input === 'string' ? input : input.message;
-      const explicitTargetUsername = typeof input === 'string' ? undefined : input.targetUsername;
-      const pendingContext = typeof input === 'string' ? undefined : input.pendingContext;
-
-      const account = getLocalAccount();
-      const allLocalDocs = getAllLocalSiteDocuments();
-      const allServices =
-        account?.websites && account.websites.length > 0
-          ? account.websites
-          : allLocalDocs.map((d) => toAccountWebsiteSummary(d));
-
-      // If user has multiple services and no explicit targetUsername was locked in,
-      // resolve target service or trigger disambiguation before modifying anything!
-      const candidatePool = explicitTargetUsername
-        ? allServices.filter((s) => s.username === explicitTargetUsername)
-        : allServices;
-
-      const resolution = resolveMultiServiceCommand(
-        message,
-        candidatePool.length > 0 ? candidatePool : allServices,
-        pendingContext
-      );
-
-      if (
-        resolution.status === 'needs_disambiguation' ||
-        resolution.status === 'create_new_service' ||
-        resolution.status === 'no_services' ||
-        resolution.status === 'not_found'
-      ) {
-        return {
-          reply: resolution.botReply,
-          message: null,
-          website: null,
-          resolution,
-        };
-      }
-
-      const resolvedUsername =
-        resolution.targetService?.username || explicitTargetUsername || allServices[0]?.username;
-
+    mutationFn: async (message: string) => {
       try {
         const res = await accountFetch<{
           reply: string;
@@ -1476,37 +1338,114 @@ export function useSendAssistantCommand() {
           website: SiteDocument | null;
         }>('/api/me/assistant', {
           method: 'POST',
-          body: JSON.stringify({
-            message,
-            ...(resolvedUsername ? { username: resolvedUsername } : {}),
-          }),
+          body: JSON.stringify({ message }),
         });
         if (res.website) {
           saveLocalSiteDocument(res.website);
         }
-        return { ...res, resolution };
+        return res;
       } catch {
-        if (!resolvedUsername) {
-          return {
-            reply: resolution.botReply,
-            message: null,
-            website: null,
-            resolution,
+        // Local execution fallback when offline or previewing without Worker
+        const account = getLocalAccount();
+        const doc = getLocalSiteDocument();
+        let reply = '';
+        let updatedDoc = doc;
+
+        if (message.includes('زائر') || message.includes('إحصائيات') || message.includes('زيارات')) {
+          if (!doc) {
+            reply = 'لم تقم بإنشاء موقع بعد. أنشئ موقعك أولاً من قسم «خدماتي وموقعي» لبدء تتبع الزيارات الفعلية.';
+          } else {
+            const colKey = doc.collectionKey || 'items';
+            const list = Array.isArray(doc.jsonStructure?.[colKey])
+              ? (doc.jsonStructure[colKey] as unknown[]).length
+              : 0;
+            const today = account?.website?.visitsToday ?? 0;
+            const total = account?.website?.visitsTotal ?? 0;
+            const remaining = Math.max(
+              0,
+              (account?.freeMessagesLimit ?? 40) - (account?.freeMessagesUsed ?? 0)
+            );
+            reply = `📊 إحصائيات موقعك «${doc.siteName}»:\n• زيارات اليوم: ${today} زيارة\n• إجمالي الزيارات الكلي: ${total} زيارة\n• عدد العناصر المنشورة حالياً: ${list}\n• الرصيد المتبقي من رسائل المساعد: ${remaining} رسالة.`;
+          }
+        } else if (
+          doc &&
+          (message.startsWith('أضف ') ||
+            message.startsWith('اضف ') ||
+            message.includes('أضف طبق') ||
+            message.includes('أضف منتج') ||
+            message.includes('أضف خدمة'))
+        ) {
+          const colKey = doc.collectionKey || 'items';
+          const existingList = Array.isArray(doc.jsonStructure?.[colKey])
+            ? [...(doc.jsonStructure[colKey] as Array<Record<string, unknown>>)]
+            : [];
+          const cleanedText = message
+            .replace(/^(أضف|اضف)\s*(طبق اليوم|طبق|منتج|خدمة|مشروع)?\s*:?\s*/i, '')
+            .trim();
+          const priceMatch = cleanedText.match(/(\d+(?:\.\d+)?\s*(?:ر\.س|ريال|SAR|\$)?)$/i);
+          const itemName = priceMatch
+            ? cleanedText.slice(0, priceMatch.index).trim() || cleanedText
+            : cleanedText;
+          const itemPrice = priceMatch ? priceMatch[1].trim() : undefined;
+          const newItem: Record<string, unknown> =
+            doc.templateId === 'portfolio'
+              ? { title: itemName, description: '' }
+              : { name: itemName, ...(itemPrice ? { price: itemPrice } : {}), description: '' };
+          existingList.push(newItem);
+          updatedDoc = {
+            ...doc,
+            jsonStructure: { ...doc.jsonStructure, [colKey]: existingList },
+            updatedAt: new Date().toISOString(),
           };
+          saveLocalSiteDocument(updatedDoc);
+          reply = `✅ تم حفظ «${itemName}»${itemPrice ? ` (${itemPrice})` : ''} في موقعك «${doc.siteName}» بنجاح!`;
+        } else if (
+          doc &&
+          (message.includes('أوقات العمل') || message.includes('ساعات العمل') || message.includes('الدوام'))
+        ) {
+          const hoursText = message
+            .replace(/^.*?(أوقات العمل الجديدة|أوقات العمل|ساعات العمل|الدوام)\s*:?\s*/i, '')
+            .trim();
+          const nextHours = [{ day: 'أوقات العمل', time: hoursText || message }];
+          updatedDoc = {
+            ...doc,
+            jsonStructure: { ...doc.jsonStructure, hours: nextHours },
+            updatedAt: new Date().toISOString(),
+          };
+          saveLocalSiteDocument(updatedDoc);
+          reply = `⏰ تم تحديث ساعات العمل لموقعك «${doc.siteName}» إلى: ${hoursText || message}`;
+        } else if (
+          doc &&
+          (message.startsWith('وصف:') || message.startsWith('نبذة:') || message.startsWith('العنوان:'))
+        ) {
+          const newDesc = message.replace(/^(وصف|نبذة|العنوان)\s*:\s*/i, '').trim();
+          updatedDoc = {
+            ...doc,
+            jsonStructure: {
+              ...doc.jsonStructure,
+              description: newDesc,
+              tagline: newDesc.slice(0, 120),
+            },
+            updatedAt: new Date().toISOString(),
+          };
+          saveLocalSiteDocument(updatedDoc);
+          reply = `✨ تم تحديث وصف موقعك «${doc.siteName}» بنجاح.`;
+        } else {
+          reply = doc
+            ? `مرحباً بك! موقعك المتصل هو «${doc.siteName}».\nيمكنك إرسال أوامر مباشرة مثل:\n• "كم زائر اليوم؟" لعرض الزيارات الحقيقية\n• "أضف منتج: قهوة مختصة 25 ر.س" لإضافة عنصر فوراً\n• "أوقات العمل: 9 صباحاً - 11 مساءً" لتحديث ساعات الدوام\n• "وصف: نص الوصف الجديد" لتحديث نبذة الموقع.`
+            : 'مرحباً بك! أنشئ موقعك أولاً من قسم «خدماتي وموقعي»، وبعدها يمكنك استخدام المساعد السريع لإضافة المنتجات، تحديث ساعات العمل، أو الاستعلام عن الزيارات الحقيقية.';
         }
-        const applied = applyAssistantResolutionToLocalSite(resolvedUsername, resolution);
+
         return {
-          reply: applied.reply,
+          reply,
           message: null,
-          website: applied.website,
-          resolution,
+          website: updatedDoc,
         };
       }
     },
     onSuccess: (res) => {
       if (res.website) {
         queryClient.setQueryData(siteQueryKey, res.website);
-        queryClient.setQueryData([...siteQueryKey, res.website.username], res.website);
         const updatedAccount = getLocalAccount();
         if (updatedAccount) {
           queryClient.setQueryData(accountQueryKey, updatedAccount);

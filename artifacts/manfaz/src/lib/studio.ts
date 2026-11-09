@@ -449,3 +449,146 @@ export function applyAction(draft: Draft, action: Action): ApplyResult {
 }
 
 export const HELP_EXAMPLES = ['زد الأسعار 5 ريال', 'أضف قسم المقبلات', 'أضف عصير ليمون 9', 'غيّر اللون إلى أخضر', 'وصف: أفضل شاورما في الحي'];
+
+// ---------------------------------------------------------------------------
+// Gemini results (validated server-side in workers/manfaz-api/src/dashboard-ai.ts)
+// ---------------------------------------------------------------------------
+
+export type AiItem = Partial<Record<'name' | 'title' | 'price' | 'duration' | 'description' | 'category', string>>;
+
+export type AiOp =
+  | { op: 'set'; field: 'siteName' | 'headline' | 'description' | 'ctaLabel'; value: string }
+  | { op: 'color'; hex: string }
+  | { op: 'style'; style: string }
+  | { op: 'addItem'; item: AiItem; section?: string }
+  | { op: 'updateItem'; index: number; patch: AiItem }
+  | { op: 'removeItem'; index: number }
+  | { op: 'renameSection'; from: string; to: string }
+  | { op: 'removeSection'; name: string }
+  | { op: 'hours'; hours: Array<{ day: string; time: string }> }
+  | { op: 'contact'; patch: Partial<Record<'phone' | 'whatsapp' | 'email' | 'address', string>> };
+
+export interface AiCreate {
+  templateId: string;
+  siteName: string;
+  headline: string;
+  description: string;
+  themeColor?: string;
+  templateStyle?: string;
+  items: AiItem[];
+}
+
+const isStyle = (v: string): v is SiteStyle => v === 'classic' || v === 'modern' || v === 'cinematic' || v === 'app';
+
+// Maps an AI item onto the fields this template really has (e.g. portfolio
+// uses `title`, only priced templates keep `price`, only sectioned ones keep
+// `category`) so a hallucinated field can never leak into the saved site.
+function itemFromAi(tpl: TemplateDef, ai: AiItem, section?: string): Item {
+  const out: Item = {};
+  const name = ai[tpl.nameField] ?? ai.name ?? ai.title;
+  if (name) out[tpl.nameField] = name;
+  if (tpl.hasPrice && ai.price !== undefined) out.price = ai.price;
+  if (tpl.id === 'booking' && ai.duration) out.duration = ai.duration;
+  if (ai.description) out.description = ai.description;
+  const category = section ?? ai.category;
+  if (tpl.hasSections && category) out.category = category;
+  return out;
+}
+
+export function applyOps(draft: Draft, ops: AiOp[]): ApplyResult {
+  const tpl = getTemplate(draft.templateId);
+  let d = draft;
+  let field: ApplyResult['field'];
+  const touched = new Set<Item>();
+  // Removed items become null placeholders so every index in the model's
+  // answer keeps pointing at the item it saw; nulls are dropped at the end.
+  let items: Array<Item | null> = [...getItems(d)];
+
+  for (const op of ops) {
+    switch (op.op) {
+      case 'set':
+        if (op.field === 'siteName') {
+          d = { ...d, siteName: op.value };
+          field = 'siteName';
+        } else {
+          d = {
+            ...d,
+            structure: { ...d.structure, [op.field]: op.value, ...(op.field === 'description' ? { tagline: op.value.slice(0, 120) } : {}) },
+          };
+          if (op.field !== 'ctaLabel') field = op.field;
+        }
+        break;
+      case 'color':
+        d = { ...d, themeColor: op.hex };
+        field = 'color';
+        break;
+      case 'style':
+        if (isStyle(op.style)) {
+          d = { ...d, structure: { ...d.structure, templateStyle: op.style, darkMode: op.style === 'cinematic' ? true : d.structure.darkMode } };
+          field = 'style';
+        }
+        break;
+      case 'addItem': {
+        const entry = itemFromAi(tpl, op.item, op.section);
+        if (entry[tpl.nameField]) {
+          items.push(entry);
+          touched.add(entry);
+        }
+        break;
+      }
+      case 'updateItem': {
+        const current = items[op.index];
+        if (!current) break;
+        const patch = itemFromAi(tpl, op.patch);
+        const next: Item = { ...current, ...patch };
+        items[op.index] = next;
+        touched.add(next);
+        break;
+      }
+      case 'removeItem':
+        if (items[op.index]) items[op.index] = null;
+        break;
+      case 'renameSection':
+        if (tpl.hasSections) items = items.map((it) => (it && (it.category ?? '').trim() === op.from ? { ...it, category: op.to } : it));
+        break;
+      case 'removeSection':
+        if (tpl.hasSections) items = items.map((it) => (it && (it.category ?? '').trim() === op.name ? null : it));
+        break;
+      case 'hours':
+        d = { ...d, structure: { ...d.structure, hours: op.hours } };
+        break;
+      case 'contact': {
+        const prev = d.structure.contact && typeof d.structure.contact === 'object' ? (d.structure.contact as Record<string, unknown>) : {};
+        d = { ...d, structure: { ...d.structure, contact: { ...prev, ...op.patch } } };
+        break;
+      }
+    }
+  }
+  const kept = items.filter((it): it is Item => it !== null);
+  d = withItems(d, kept);
+  return {
+    draft: d,
+    reply: '',
+    touched: kept.flatMap((it, i) => (touched.has(it) ? [i] : [])),
+    field,
+    changed: isDirty(d, draft),
+  };
+}
+
+export function draftFromCreate(create: AiCreate): Draft {
+  const tpl = getTemplate(create.templateId);
+  const base = newDraft(tpl.id, { siteName: create.siteName });
+  const items = create.items.map((it) => itemFromAi(tpl, it)).filter((it) => it[tpl.nameField]);
+  return {
+    ...base,
+    themeColor: create.themeColor ?? base.themeColor,
+    structure: {
+      ...base.structure,
+      headline: create.headline || create.siteName,
+      description: create.description || tpl.starter.description,
+      tagline: (create.description || tpl.starter.description).slice(0, 120),
+      templateStyle: create.templateStyle && isStyle(create.templateStyle) ? create.templateStyle : 'modern',
+      ...(items.length ? { [tpl.collectionKey]: items } : {}),
+    },
+  };
+}

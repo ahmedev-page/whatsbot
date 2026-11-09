@@ -17,7 +17,18 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Readex+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- Non-blocking: a plain stylesheet link holds the first paint hostage until Google Fonts answers, which on slow or filtered networks means a long blank screen. -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Readex+Pro:wght@300;400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Readex+Pro:wght@300;400;500;600;700&display=swap" /></noscript>
+    <style>
+      html, body { margin: 0; background: #F8FAFC; }
+      .boot-splash { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; color: #0F172A; }
+      .boot-splash b { font-size: 22px; letter-spacing: .12em; }
+      .boot-spinner { width: 30px; height: 30px; border: 3px solid #CBD5E1; border-top-color: #2563EB; border-radius: 50%; animation: boot-spin .8s linear infinite; }
+      .boot-splash button { height: 44px; padding: 0 22px; border: 0; border-radius: 12px; background: #2563EB; color: #fff; font: 700 14px system-ui, sans-serif; }
+      .boot-splash p { margin: 0; max-width: 320px; text-align: center; line-height: 1.8; color: #475569; font-size: 14px; }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+    </style>
     <meta name="theme-color" content="#060B18" />
     <meta name="color-scheme" content="light only" />
     <meta name="supported-color-schemes" content="light only" />
@@ -27,7 +38,34 @@
     <meta name="apple-mobile-web-app-title" content="ORxai" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot-splash" id="boot-splash" role="status" aria-label="جارٍ التحميل"><b>ORXAI</b><div class="boot-spinner"></div></div></div>
+    <script>
+      // Last line of defence against a blank screen. The static splash above is
+      // replaced the moment React renders. If the app script fails to load or
+      // crashes before rendering anything, show a way out instead of white.
+      (function () {
+        function fail() {
+          var el = document.getElementById('boot-splash');
+          if (!el) return;
+          el.innerHTML = '<p>تعذّر تحميل الصفحة. قد يكون السبب ضعف الاتصال أو نسخة قديمة محفوظة في المتصفح.</p><button id="boot-retry" type="button">إعادة التحميل</button>';
+          document.getElementById('boot-retry').onclick = function () {
+            var done = function () { location.reload(); };
+            try {
+              var jobs = [];
+              if (window.caches) jobs.push(caches.keys().then(function (k) { return Promise.all(k.map(function (n) { return caches.delete(n); })); }));
+              if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (r) { return Promise.all(r.map(function (x) { return x.unregister(); })); }));
+              Promise.all(jobs).then(done, done);
+            } catch (e) { done(); }
+          };
+        }
+        window.addEventListener('error', function (e) {
+          var t = e && e.target;
+          // SCRIPT only: a blocked font stylesheet is harmless and must not trigger this.
+          if (t && t.tagName === 'SCRIPT' && document.getElementById('boot-splash')) fail();
+        }, true);
+        setTimeout(fail, 15000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,34 +1,35 @@
 import { useState } from 'react';
-import { Link } from 'wouter';
+import { AnimatePresence, LayoutGroup, motion } from '@/components/motion-lite';
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowRight,
-  Bot,
-  Check,
+  ArrowUpLeft,
+  BadgeCheck,
+  BarChart3,
+  Briefcase,
+  CalendarCheck,
+  CalendarDays,
   ChevronDown,
-  Cloud,
-  ExternalLink,
+  ClipboardList,
   Globe,
-  Layers,
-  LogIn,
+  ListChecks,
   Menu,
-  MessageSquare,
-  Palette,
+  MessageCircle,
   ShieldCheck,
-  Sparkles,
-  Wand2,
+  ShoppingBag,
+  Star,
+  Store,
+  User,
+  UtensilsCrossed,
   X,
-  Zap,
+  type LucideIcon,
 } from 'lucide-react';
-import { OrxaiMark } from '@/components/orxai-mark';
+import { Link } from 'wouter';
+import { Brand } from '@/components/brand';
 import {
   BotVisualAttachment,
-  CategoryHexGlobeIcon,
-  CategoryStackedLayersIcon,
-  HeroIsometricBrowserShowcase,
   HeroOrbitalBackdrop,
-  InfinityPedestalVisual,
+  SectionCurveDivider,
+  ServiceCardVisual,
   StudioHeroBannerArt,
 } from '@/components/landing-visuals';
 import { useAccount, type SiteStyle } from '@/lib/account';
@@ -39,1738 +40,1812 @@ import {
   STUDIO_PRESETS,
   STYLE_MODES,
   resolveStudioPreviewState,
-  type StudioPresetConfig,
+  type ServiceVisualKind,
 } from '@/lib/landing-data';
 
-const FAQ_ITEMS = [
+const SERVICE_ICONS: Record<ServiceVisualKind, LucideIcon> = {
+  website: Globe,
+  store: ShoppingBag,
+  menu: UtensilsCrossed,
+  booking: CalendarCheck,
+  profile: User,
+  services_pkg: Briefcase,
+  loyalty: BadgeCheck,
+  reviews: Star,
+  survey: ClipboardList,
+  quiz: ListChecks,
+  poll: BarChart3,
+  invite: CalendarDays,
+};
+
+const PRESET_ICONS: Record<string, LucideIcon> = {
+  store: Store,
+  restaurant: UtensilsCrossed,
+  booking: CalendarCheck,
+  services: Briefcase,
+  survey: ClipboardList,
+  rsvp: CalendarDays,
+  invoice: Briefcase,
+  vcard: User,
+};
+
+const HERO_PRESET_IDS = ['store', 'restaurant', 'survey', 'booking'] as const;
+
+const FAQ_LIST = [
   {
-    q: 'هل كل قالب في ORxai يعمل بنظام مستقل ومخصص؟',
-    a: 'نعم، كل خدمة تمتلك واجهة وقسم تحكم مخصصين لطبيعتها: المتجر بسلة طلبات، المنيو بأصناف الطاولات، الحجوزات بجدول مواعيد، والاستبيان بأسئلة وتقييمات تفاعلية.',
+    q: 'هل لكل خدمة قالب مستقل ومخصص لطبيعتها؟',
+    a: 'نعم، كل خدمة تمتلك قالبها التفاعلي المستقل: قالب مخصص للاستبيانات والتقييم، قالب للحجوزات، قالب لدعوات الفعاليات (RSVP)، قالب لعروض الأسعار، وقوالب مخصصة للمتاجر والمطاعم والشركات والبطاقات الرقمية.',
   },
   {
-    q: 'كيف يعمل المساعد الذكي عبر واتساب؟',
-    a: 'يرتبط بحسابك لتوثيق الدخول السريع (OTP)، إجراء التعديلات النصية الفورية على موقعك المنشور، وطلب ملخص الزيارات والطلبات اليومية برسالة واحدة.',
+    q: 'ما هو دور بوت الواتساب في المنظومة؟',
+    a: 'يعمل البوت كمساعد تنفيذي سريع لثلاث مهام محددة: التحقق الأمني لمرة واحدة لكل جهاز، التعديلات النصية السريعة، وإرسال إحصائيات الزوار الفعلية.',
   },
   {
-    q: 'هل أحتاج إلى خبرة تقنية لإطلاق موقعي أو أداتي التفاعلية؟',
-    a: 'لا على الإطلاق؛ اختر القالب المناسب، أدخل اسم مشروعك وهويتك اللونية، وانشر رابطك الرسمي فوراً من لوحة التحكم.',
+    q: 'هل أحتاج لإعادة التحقق في كل مرة أدخل فيها؟',
+    a: 'لا، يتم توثيق جهازك عند التحقق لأول مرة، وبعدها تدخل مباشرة من نفس الجهاز دون تكرار الكود.',
   },
 ];
 
-export default function LandingPage() {
+const SMOOTH_SPRING = {
+  type: 'spring' as const,
+  stiffness: 360,
+  damping: 30,
+};
+
+export default function Landing() {
   const account = useAccount();
-  const currentUser = account.data;
-  const primaryDestination = '/dashboard';
-
-  // Mobile / Quick Drawer Menu state
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  // Hero 3D Browser interactive tab (0..3)
-  const [heroBrowserTab, setHeroBrowserTab] = useState(0);
-
-  // Selected Category ('websites' | 'tools')
-  const [activeCategoryId, setActiveCategoryId] = useState<'websites' | 'tools'>('websites');
+  const isSignedIn = Boolean(account.data);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Interactive Studio State
-  const [studioPreset, setStudioPreset] = useState<StudioPresetConfig['id']>('store');
-  const [studioTitle, setStudioTitle] = useState('');
-  const [studioColor, setStudioColor] = useState(EXECUTIVE_THEMES[0].hex);
-  const [studioStyle, setStudioStyle] = useState<SiteStyle>('cinematic');
+  const [presetKey, setPresetKey] = useState<string>('store');
+  const [styleMode, setStyleMode] = useState<SiteStyle>('cinematic');
+  const [accentHex, setAccentHex] = useState<string>('#2563EB');
+  const [customTitle, setCustomTitle] = useState<string>('');
 
-  // WhatsApp Bot Pillar State
-  const [activeBotPillar, setActiveBotPillar] = useState<'auth' | 'edit' | 'analytics'>('edit');
+  // Consolidated Service Groups Active Sub-Item State
+  const [selectedSubByGroup, setSelectedSubByGroup] = useState<Record<string, string>>({
+    websites: 'store',
+    tools: 'survey',
+  });
 
-  // FAQ Accordion State
+  // Bot Pillar State
+  const [activeBotId, setActiveBotId] = useState<'auth' | 'edit' | 'analytics'>('auth');
+
+  // FAQ State
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
-  const previewState = resolveStudioPreviewState(
-    studioPreset,
-    studioTitle,
-    studioColor,
-    studioStyle,
-  );
+  const studioState = resolveStudioPreviewState(presetKey, customTitle, accentHex, styleMode);
+  const activePreset = studioState.preset;
+  const activeTheme = studioState.theme;
+  const displayTitle = studioState.displayTitle;
 
-  const currentBot =
-    BOT_PILLARS.find((item) => item.id === activeBotPillar) ?? BOT_PILLARS[1];
-
-  const activeCategoryGroup =
-    SERVICE_GROUPS.find((g) => g.id === activeCategoryId) ?? SERVICE_GROUPS[0];
-
-  const heroTabPresets: StudioPresetConfig['id'][] = ['store', 'restaurant', 'services', 'booking'];
-  const handleHeroTabSelect = (idx: number) => {
-    setHeroBrowserTab(idx);
-    const mapped = heroTabPresets[idx] ?? 'store';
-    setStudioPreset(mapped);
-  };
-
-  const handleSelectCategory = (categoryId: 'websites' | 'tools', scroll = true) => {
-    setActiveCategoryId(categoryId);
-    const defaultPresetForCat = categoryId === 'websites' ? 'store' : 'survey';
-    setStudioPreset(defaultPresetForCat);
-    if (scroll) {
-      document.getElementById('services-suite')?.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
-  const handleSelectSubService = (
-    categoryId: 'websites' | 'tools',
-    templateId: string,
-    scroll = true,
-  ) => {
-    setActiveCategoryId(categoryId);
-    const presetKey = (
-      templateId in STUDIO_PRESETS ? templateId : 'store'
-    ) as StudioPresetConfig['id'];
-    setStudioPreset(presetKey);
-    if (scroll) {
-      document.getElementById('interactive-studio')?.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
-  const launchHref = `/dashboard?create=1&template=${encodeURIComponent(
-    studioPreset,
-  )}&style=${encodeURIComponent(studioStyle)}${
-    studioTitle.trim() ? `&name=${encodeURIComponent(studioTitle.trim())}` : ''
-  }`;
+  const activeBot = BOT_PILLARS.find((b) => b.id === activeBotId) || BOT_PILLARS[0];
 
   return (
     <div
-      dir="rtl"
-      style={{
-        backgroundColor: '#030712',
-        color: '#FFFFFF',
-      }}
-      className="relative min-h-screen overflow-x-hidden font-sans antialiased selection:bg-sky-500 selection:text-white"
+      style={{ backgroundColor: '#F8FAFC', color: '#0F172A' }}
+      className="min-h-screen overflow-x-hidden bg-[#F8FAFC] font-sans text-[#0F172A] antialiased selection:bg-blue-600 selection:text-white"
     >
-      {/* Ambient Deep Midnight Sapphire Backdrop (matching attached reference image) */}
-      <HeroOrbitalBackdrop />
-
       {/* =====================================================================
-          1. TOP HEADER BAR (Matches reference image: Left Hamburger + ORxai, Right Login Pill)
-      ====================================================================== */}
-      <header className="relative z-40 mx-auto max-w-6xl px-3.5 pt-3.5 sm:px-8 sm:pt-6">
-        <div
-          dir="ltr"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-          }}
-        >
-          {/* Left Side: Circular Glass Menu Button + ORxai Logo */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-            }}
+          STICKY FROSTED EXECUTIVE HEADER
+          ===================================================================== */}
+      <header
+        style={{
+          backgroundColor: 'rgba(255, 255, 255, 0.96)',
+          borderBottomColor: '#E2E8F0',
+          color: '#0F172A',
+        }}
+        className="sticky top-0 z-50 border-b border-slate-200 bg-white"
+      >
+        <div className="mx-auto flex h-20 max-w-[1380px] items-center justify-between gap-4 px-5 sm:gap-8 sm:px-10">
+          {/* Zone 1: Brand */}
+          <Brand href="/" />
+
+          {/* Zone 2: 4 Navigation Links */}
+          <nav
+            aria-label="التنقل الرئيسي"
+            style={{ color: '#334155' }}
+            className="hidden md:flex items-center gap-9 text-base font-bold text-slate-700"
           >
+            <a
+              href="#interactive-studio"
+              style={{ color: '#334155' }}
+              className="relative py-1 whitespace-nowrap shrink-0 transition-colors duration-200 hover:text-blue-600"
+            >
+              استوديو المنصة
+            </a>
+            <a
+              href="#services-suite"
+              style={{ color: '#334155' }}
+              className="relative py-1 whitespace-nowrap shrink-0 transition-colors duration-200 hover:text-blue-600"
+            >
+              أقسام الخدمات والقوالب
+            </a>
+            <a
+              href="#whatsapp-assistant"
+              style={{ color: '#334155' }}
+              className="relative py-1 whitespace-nowrap shrink-0 transition-colors duration-200 hover:text-blue-600"
+            >
+              المساعد الذكي
+            </a>
+            <a
+              href="#faq"
+              style={{ color: '#334155' }}
+              className="relative py-1 whitespace-nowrap shrink-0 transition-colors duration-200 hover:text-blue-600"
+            >
+              الأسئلة الشائعة
+            </a>
+          </nav>
+
+          {/* Zone 3: 1 Primary Action Button */}
+          <div className="flex items-center gap-2.5 shrink-0 sm:gap-3">
+            <Link
+              href={isSignedIn ? '/dashboard' : '/login'}
+              style={{
+                background: 'linear-gradient(135deg, #0B132B 0%, #1D4ED8 100%)',
+                backgroundColor: '#0B132B',
+                color: '#FFFFFF',
+                borderColor: '#1E40AF',
+              }}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-4 text-xs font-bold text-white shadow-md whitespace-nowrap shrink-0 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg sm:h-12 sm:px-6 sm:text-sm"
+              data-testid="link-header-primary-cta"
+            >
+              <span style={{ color: '#FFFFFF' }}>
+                {isSignedIn ? 'لوحة التحكم' : 'دخول المنصة'}
+              </span>
+              <ArrowUpLeft size={16} style={{ color: '#38BDF8' }} />
+            </Link>
+
             <button
               type="button"
-              aria-label="القائمة الرئيسية"
-              data-testid="button-menu-toggle"
-              onClick={() => setMenuOpen((prev) => !prev)}
+              onClick={() => setMobileMenuOpen((v) => !v)}
               style={{
-                width: '36px',
-                height: '36px',
-                minWidth: '36px',
-                maxWidth: '36px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: '9999px',
-                backgroundColor: 'rgba(10, 20, 48, 0.78)',
-                borderColor: 'rgba(56, 189, 248, 0.26)',
-                color: '#E2E8F0',
-                boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.14)',
+                backgroundColor: '#F1F5F9',
+                borderColor: '#CBD5E1',
+                color: '#0F172A',
               }}
-              className="rounded-full border backdrop-blur-md transition-all duration-200 hover:border-sky-400/60 hover:text-white"
+              className="inline-flex size-11 items-center justify-center rounded-xl border border-slate-300 bg-slate-100 text-slate-900 transition-colors hover:bg-slate-200 md:hidden"
+              aria-label={mobileMenuOpen ? 'إغلاق القائمة' : 'فتح القائمة'}
+              aria-expanded={mobileMenuOpen}
             >
-              {menuOpen ? <X size={17} /> : <Menu size={17} />}
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
-
-            <Link
-              href="/"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-              className="select-none focus:outline-none"
-            >
-              <svg
-                viewBox="0 0 44 44"
-                width="28"
-                height="28"
-                style={{ width: '28px', height: '28px', flexShrink: 0 }}
-                fill="none"
-                aria-hidden
-              >
-                <defs>
-                  <linearGradient id="orx-hdr-x1" x1="6" y1="8" x2="38" y2="36" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#38BDF8" />
-                    <stop offset="100%" stopColor="#2563EB" />
-                  </linearGradient>
-                  <linearGradient id="orx-hdr-x2" x1="38" y1="8" x2="6" y2="36" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#7DD3FC" />
-                    <stop offset="100%" stopColor="#0284C7" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d="M8 10L17 10L36 34L27 34L8 10Z"
-                  fill="url(#orx-hdr-x1)"
-                />
-                <path
-                  d="M36 10L27 10L8 34L17 34L36 10Z"
-                  fill="url(#orx-hdr-x2)"
-                />
-                <circle cx="22" cy="22" r="2.8" fill="#E0F2FE" />
-              </svg>
-              <span
-                style={{
-                  color: '#FFFFFF',
-                  fontSize: 'clamp(1.15rem, 3vw, 1.5rem)',
-                  fontWeight: 800,
-                }}
-                className="font-mono tracking-tight"
-              >
-                ORxai
-              </span>
-            </Link>
           </div>
-
-          {/* Right Side: "دخول المنصة" Dark Glass Pill Button */}
-          <Link
-            href={primaryDestination}
-            data-testid="link-header-primary-cta"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              borderRadius: '9999px',
-              padding: '6px 14px',
-              backgroundImage:
-                'linear-gradient(135deg, rgba(14, 28, 66, 0.88) 0%, rgba(7, 15, 36, 0.94) 100%)',
-              borderColor: 'rgba(56, 189, 248, 0.32)',
-              color: '#FFFFFF',
-              boxShadow:
-                '0 8px 22px -6px rgba(2, 6, 23, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.16)',
-            }}
-            className="rounded-full border text-xs sm:text-sm font-extrabold backdrop-blur-md transition-all duration-200 hover:border-sky-400/70 hover:bg-slate-900 whitespace-nowrap"
-          >
-            <span>{currentUser ? 'لوحة التحكم' : 'دخول المنصة'}</span>
-            <LogIn size={14} className="text-sky-400" />
-          </Link>
         </div>
 
-        {/* Collapsible Glass Navigation Drawer when Hamburger is clicked */}
-        {menuOpen && (
-          <div
-            dir="rtl"
-            style={{
-              backgroundColor: 'rgba(8, 16, 38, 0.96)',
-              borderColor: 'rgba(56, 189, 248, 0.32)',
-            }}
-            className="mt-3 rounded-2xl border p-3.5 sm:p-5 shadow-2xl backdrop-blur-xl"
-          >
-            <div
+        {/* Animated Mobile Menu */}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25 }}
               style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '8px',
+                backgroundColor: '#FFFFFF',
+                borderTopColor: '#E2E8F0',
+                color: '#0F172A',
               }}
+              className="overflow-hidden border-t border-slate-200 bg-white px-6 py-4 md:hidden"
             >
-              <a
-                href="#services-suite"
-                onClick={() => setMenuOpen(false)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  borderRadius: '9999px',
-                  padding: '7px 14px',
-                  backgroundColor: 'rgba(15, 29, 64, 0.75)',
-                  borderColor: 'rgba(56, 189, 248, 0.25)',
-                  color: '#FFFFFF',
-                }}
-                className="border text-xs font-bold transition hover:border-sky-400"
-              >
-                <span>مواقع وواجهات وأدوات</span>
-                <ArrowLeft size={13} className="text-sky-400" />
-              </a>
-              <a
-                href="#interactive-studio"
-                onClick={() => setMenuOpen(false)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  borderRadius: '9999px',
-                  padding: '7px 14px',
-                  backgroundColor: 'rgba(15, 29, 64, 0.75)',
-                  borderColor: 'rgba(56, 189, 248, 0.25)',
-                  color: '#FFFFFF',
-                }}
-                className="border text-xs font-bold transition hover:border-sky-400"
-              >
-                <span>استوديو التجربة الحية</span>
-                <ArrowLeft size={13} className="text-sky-400" />
-              </a>
-              <a
-                href="#whatsapp-assistant"
-                onClick={() => setMenuOpen(false)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  borderRadius: '9999px',
-                  padding: '7px 14px',
-                  backgroundColor: 'rgba(15, 29, 64, 0.75)',
-                  borderColor: 'rgba(56, 189, 248, 0.25)',
-                  color: '#FFFFFF',
-                }}
-                className="border text-xs font-bold transition hover:border-sky-400"
-              >
-                <span>مساعد واتساب الذكي</span>
-                <ArrowLeft size={13} className="text-sky-400" />
-              </a>
-              <Link
-                href={primaryDestination}
-                onClick={() => setMenuOpen(false)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  borderRadius: '9999px',
-                  padding: '7px 14px',
-                  backgroundImage: 'linear-gradient(90deg, #1D4ED8 0%, #0EA5E9 100%)',
-                  color: '#FFFFFF',
-                }}
-                className="text-xs font-extrabold shadow-md"
-              >
-                <span>{currentUser ? 'لوحة التحكم' : 'ابدأ الآن مجاناً'}</span>
-                <ArrowLeft size={13} />
-              </Link>
-            </div>
-          </div>
-        )}
+              <nav className="flex flex-col space-y-1.5 text-base font-bold text-slate-800">
+                <a
+                  href="#interactive-studio"
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={{ color: '#0F172A' }}
+                  className="rounded-xl px-4 py-3 transition-colors hover:bg-slate-100"
+                >
+                  استوديو المنصة
+                </a>
+                <a
+                  href="#services-suite"
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={{ color: '#0F172A' }}
+                  className="rounded-xl px-4 py-3 transition-colors hover:bg-slate-100"
+                >
+                  أقسام الخدمات والقوالب
+                </a>
+                <a
+                  href="#whatsapp-assistant"
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={{ color: '#0F172A' }}
+                  className="rounded-xl px-4 py-3 transition-colors hover:bg-slate-100"
+                >
+                  المساعد الذكي
+                </a>
+                <a
+                  href="#faq"
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={{ color: '#0F172A' }}
+                  className="rounded-xl px-4 py-3 transition-colors hover:bg-slate-100"
+                >
+                  الأسئلة الشائعة
+                </a>
+              </nav>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
-      {/* =====================================================================
-          2. HERO SECTION + 2 CATEGORY CARDS + WHY ORXAI (Exact Match to Reference Image on Mobile & Desktop)
-      ====================================================================== */}
-      <main className="relative z-10 mx-auto max-w-6xl px-3.5 pt-4 pb-6 sm:px-8 sm:pt-10 sm:pb-14">
-        {/* --- A. HERO SPLIT SECTION (Side-by-Side 2-Column on Mobile & Desktop like Reference Image) --- */}
+      <main>
+        {/* =====================================================================
+            HERO SECTION: Royal Midnight Sapphire & Sculpted 3D Showcase
+            ===================================================================== */}
         <section
           data-testid="landing-hero"
           style={{
-            display: 'grid',
-            gridTemplateColumns: '54% 46%',
-            alignItems: 'center',
-            gap: '8px',
+            background: 'linear-gradient(180deg, #060B18 0%, #0B132B 55%, #0F172A 100%)',
+            backgroundColor: '#060B18',
+            color: '#FFFFFF',
           }}
+          className="relative overflow-hidden bg-[#060B18] text-white"
         >
-          {/* Right Column in RTL (First in DOM): Arabic Copy & Primary CTA */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              textAlign: 'right',
-              minWidth: 0,
-            }}
-          >
-            {/* Top Kicker Pill: "منظومتك الرقمية المتكاملة" */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                borderRadius: '9999px',
-                padding: '3px 10px',
-                backgroundColor: 'rgba(10, 22, 54, 0.85)',
-                borderColor: 'rgba(56, 189, 248, 0.3)',
-                color: '#E2E8F0',
-                boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.12)',
-                fontSize: 'clamp(9.5px, 2.2vw, 12px)',
-              }}
-              className="border font-bold backdrop-blur-md whitespace-nowrap"
-            >
-              <span
-                style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '9999px',
-                  backgroundColor: '#38BDF8',
-                  boxShadow: '0 0 8px #38BDF8',
-                  flexShrink: 0,
-                }}
-              />
-              <span>منظومتك الرقمية المتكاملة</span>
-            </div>
+          <HeroOrbitalBackdrop />
 
-            {/* Main 2-Line Headline (Single-line per row on mobile & desktop matching reference) */}
-            <h1
-              style={{
-                fontSize: 'clamp(1.14rem, 4.9vw, 3.1rem)',
-                lineHeight: 1.24,
-                marginTop: 'clamp(10px, 2vw, 20px)',
-              }}
-              className="font-extrabold tracking-tight"
-            >
-              <span style={{ color: '#FFFFFF', display: 'block', whiteSpace: 'nowrap' }}>
-                كل ما تَحتَاجه رقمياً.
-              </span>
-              <span
-                style={{
-                  color: '#38BDF8',
-                  textShadow: '0 0 28px rgba(56, 189, 248, 0.28)',
-                  display: 'block',
-                  whiteSpace: 'nowrap',
-                  marginTop: '2px',
-                }}
+          <div className="relative mx-auto max-w-[1380px] px-5 pt-12 pb-16 sm:px-10 lg:pt-20 lg:pb-24">
+            <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-12">
+              {/* Right Column: Monumental Executive Statement (7 Cols) */}
+              <motion.div
+                initial={{ opacity: 0, y: 22 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                className="flex flex-col justify-between lg:col-span-7"
               >
-                في مَكان واحد.
-              </span>
-            </h1>
-
-            {/* Subtitle with glowing cyan underline accent under "أنشِئ." */}
-            <p
-              style={{
-                color: '#E2E8F0',
-                fontSize: 'clamp(10.5px, 2.6vw, 18px)',
-                marginTop: 'clamp(8px, 1.8vw, 18px)',
-                whiteSpace: 'nowrap',
-              }}
-              className="font-bold"
-            >
-              <span className="relative inline-block pb-0.5 sm:pb-1">
-                أنشِئ.
-                <svg
-                  aria-hidden
-                  viewBox="0 0 80 10"
-                  className="pointer-events-none absolute right-0 -bottom-0.5 sm:-bottom-1 h-1.5 sm:h-2.5 w-full"
-                  style={{ width: '100%', height: '6px' }}
-                  fill="none"
-                >
-                  <path
-                    d="M 4 7 Q 40 2 76 5"
-                    stroke="#38BDF8"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </span>{' '}
-              أطلق. وأدر أعمالك بذكاء.
-            </p>
-
-            {/* Primary Pill CTA Button: "ابدأ الآن مجاناً" with compact glowing circular arrow */}
-            <div style={{ marginTop: 'clamp(12px, 2.5vw, 26px)' }}>
-              <Link
-                href={primaryDestination}
-                data-testid="button-hero-start"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  borderRadius: '9999px',
-                  padding: '4px 4px 4px 14px',
-                  backgroundImage:
-                    'linear-gradient(90deg, #1E40AF 0%, #2563EB 55%, #0EA5E9 100%)',
-                  borderColor: 'rgba(125, 211, 252, 0.45)',
-                  color: '#FFFFFF',
-                  fontSize: 'clamp(11px, 2.5vw, 14px)',
-                  boxShadow:
-                    '0 10px 26px -6px rgba(14, 165, 233, 0.52), inset 0 1px 1px rgba(255, 255, 255, 0.3)',
-                }}
-                className="group border font-extrabold transition-all duration-300 hover:scale-[1.02] whitespace-nowrap"
-              >
-                {/* Glowing cyan circle with arrow on the right side in RTL */}
-                <span
-                  style={{
-                    width: 'clamp(24px, 5vw, 34px)',
-                    height: 'clamp(24px, 5vw, 34px)',
-                    borderRadius: '9999px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundImage: 'linear-gradient(135deg, #38BDF8 0%, #0284C7 100%)',
-                    color: '#FFFFFF',
-                    boxShadow: '0 0 12px rgba(56, 189, 248, 0.65)',
-                    flexShrink: 0,
-                  }}
-                >
-                  <ArrowRight size={14} />
-                </span>
-                <span>ابدأ الآن مجاناً</span>
-              </Link>
-            </div>
-          </div>
-
-          {/* Left Column in RTL (Second in DOM): 3D Tilted Isometric Browser Showcase */}
-          <div style={{ minWidth: 0, width: '100%' }}>
-            <HeroIsometricBrowserShowcase
-              activeTab={heroBrowserTab}
-              onSelectTab={handleHeroTabSelect}
-              previewTitle={previewState.displayTitle}
-              previewSubtitle={previewState.preset.subtitle}
-              previewCta={previewState.preset.cta}
-            />
-          </div>
-        </section>
-
-        {/* --- B. TWO MAIN CATEGORY BENTO CARDS (2 Columns Side-by-Side on Mobile & Desktop matching Reference) --- */}
-        <section
-          aria-label="الأقسام الرئيسية"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-            gap: 'clamp(10px, 2.2vw, 24px)',
-            marginTop: 'clamp(20px, 4vw, 48px)',
-          }}
-        >
-          {/* Card 1 (Right in RTL): مواقع وواجهات */}
-          <button
-            type="button"
-            data-testid="card-category-websites"
-            onClick={() => handleSelectCategory('websites')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '8px',
-              borderRadius: '20px',
-              padding: 'clamp(12px, 2.5vw, 24px)',
-              backgroundImage:
-                activeCategoryId === 'websites'
-                  ? 'linear-gradient(135deg, rgba(20, 42, 96, 0.92) 0%, rgba(8, 17, 42, 0.96) 100%)'
-                  : 'linear-gradient(135deg, rgba(13, 27, 64, 0.84) 0%, rgba(6, 13, 32, 0.94) 100%)',
-              borderColor:
-                activeCategoryId === 'websites'
-                  ? 'rgba(56, 189, 248, 0.65)'
-                  : 'rgba(56, 189, 248, 0.28)',
-              boxShadow:
-                activeCategoryId === 'websites'
-                  ? '0 18px 42px -14px rgba(14, 165, 233, 0.32), inset 0 1px 1px rgba(255, 255, 255, 0.22)'
-                  : '0 16px 36px -16px rgba(2, 6, 23, 0.9), inset 0 1px 1px rgba(255, 255, 255, 0.14)',
-            }}
-            className="group relative cursor-pointer overflow-hidden border text-right transition-all duration-300 hover:border-sky-400/70"
-          >
-            {/* Ambient top-left blue light inside card */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -top-10 -left-10 h-24 w-24 sm:h-40 sm:w-40 rounded-full blur-2xl"
-              style={{
-                backgroundImage:
-                  'radial-gradient(circle, rgba(56, 189, 248, 0.25) 0%, transparent 70%)',
-              }}
-            />
-
-            {/* Right side of card (in RTL): Arabic Title & Subtitle */}
-            <div className="relative z-10 min-w-0 text-right">
-              <h2
-                style={{
-                  color: '#FFFFFF',
-                  fontSize: 'clamp(13.5px, 3.2vw, 26px)',
-                  whiteSpace: 'nowrap',
-                }}
-                className="font-extrabold tracking-tight"
-              >
-                مواقع وواجهات
-              </h2>
-              <p
-                style={{
-                  color: '#94A3B8',
-                  fontSize: 'clamp(10px, 2.1vw, 14px)',
-                  marginTop: '4px',
-                  whiteSpace: 'nowrap',
-                }}
-                className="font-medium"
-              >
-                متاجر ومواقع أعمال
-              </p>
-            </div>
-
-            {/* Left side of card (in RTL): 3D Hex Globe + Circular Arrow Button */}
-            <div
-              className="relative z-10 shrink-0"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-end',
-              }}
-            >
-              <CategoryHexGlobeIcon />
-              <span
-                style={{
-                  width: 'clamp(22px, 4vw, 30px)',
-                  height: 'clamp(22px, 4vw, 30px)',
-                  marginTop: '-6px',
-                  borderRadius: '9999px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: 'rgba(17, 34, 82, 0.9)',
-                  borderColor: 'rgba(56, 189, 248, 0.38)',
-                  color: '#E0F2FE',
-                }}
-                className="border shadow-md transition-transform duration-200 group-hover:scale-110"
-              >
-                <ArrowRight size={12} />
-              </span>
-            </div>
-          </button>
-
-          {/* Card 2 (Left in RTL): أدوات تفاعلية */}
-          <button
-            type="button"
-            data-testid="card-category-tools"
-            onClick={() => handleSelectCategory('tools')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '8px',
-              borderRadius: '20px',
-              padding: 'clamp(12px, 2.5vw, 24px)',
-              backgroundImage:
-                activeCategoryId === 'tools'
-                  ? 'linear-gradient(135deg, rgba(20, 42, 96, 0.92) 0%, rgba(8, 17, 42, 0.96) 100%)'
-                  : 'linear-gradient(135deg, rgba(13, 27, 64, 0.84) 0%, rgba(6, 13, 32, 0.94) 100%)',
-              borderColor:
-                activeCategoryId === 'tools'
-                  ? 'rgba(56, 189, 248, 0.65)'
-                  : 'rgba(56, 189, 248, 0.28)',
-              boxShadow:
-                activeCategoryId === 'tools'
-                  ? '0 18px 42px -14px rgba(14, 165, 233, 0.32), inset 0 1px 1px rgba(255, 255, 255, 0.22)'
-                  : '0 16px 36px -16px rgba(2, 6, 23, 0.9), inset 0 1px 1px rgba(255, 255, 255, 0.14)',
-            }}
-            className="group relative cursor-pointer overflow-hidden border text-right transition-all duration-300 hover:border-sky-400/70"
-          >
-            {/* Ambient top-left blue light inside card */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -top-10 -left-10 h-24 w-24 sm:h-40 sm:w-40 rounded-full blur-2xl"
-              style={{
-                backgroundImage:
-                  'radial-gradient(circle, rgba(59, 130, 246, 0.25) 0%, transparent 70%)',
-              }}
-            />
-
-            {/* Right side of card (in RTL): Arabic Title & Subtitle */}
-            <div className="relative z-10 min-w-0 text-right">
-              <h2
-                style={{
-                  color: '#FFFFFF',
-                  fontSize: 'clamp(13.5px, 3.2vw, 26px)',
-                  whiteSpace: 'nowrap',
-                }}
-                className="font-extrabold tracking-tight"
-              >
-                أدوات تفاعلية
-              </h2>
-              <p
-                style={{
-                  color: '#94A3B8',
-                  fontSize: 'clamp(10px, 2.1vw, 14px)',
-                  marginTop: '4px',
-                  whiteSpace: 'nowrap',
-                }}
-                className="font-medium"
-              >
-                حجوزات واستبيانات وغيرها
-              </p>
-            </div>
-
-            {/* Left side of card (in RTL): 3D Stacked Layers + Circular Arrow Button */}
-            <div
-              className="relative z-10 shrink-0"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-end',
-              }}
-            >
-              <CategoryStackedLayersIcon />
-              <span
-                style={{
-                  width: 'clamp(22px, 4vw, 30px)',
-                  height: 'clamp(22px, 4vw, 30px)',
-                  marginTop: '-6px',
-                  borderRadius: '9999px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: 'rgba(17, 34, 82, 0.9)',
-                  borderColor: 'rgba(56, 189, 248, 0.38)',
-                  color: '#E0F2FE',
-                }}
-                className="border shadow-md transition-transform duration-200 group-hover:scale-110"
-              >
-                <ArrowRight size={12} />
-              </span>
-            </div>
-          </button>
-        </section>
-
-        {/* --- C. "لماذا ORxai؟" SECTION (2-Column Side-by-Side on Mobile & Desktop matching Reference) --- */}
-        <section
-          aria-label="لماذا ORxai"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '56% 44%',
-            alignItems: 'center',
-            gap: '8px',
-            marginTop: 'clamp(24px, 5vw, 56px)',
-          }}
-        >
-          {/* Right Column in RTL: Badge, 2-Line Headline, and 3 Feature Columns */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              textAlign: 'right',
-              minWidth: 0,
-            }}
-          >
-            {/* Pill Badge: "لماذا ORxai؟" */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                borderRadius: '9999px',
-                padding: '3px 10px',
-                backgroundColor: 'rgba(10, 22, 54, 0.85)',
-                borderColor: 'rgba(56, 189, 248, 0.3)',
-                color: '#E2E8F0',
-                fontSize: 'clamp(9.5px, 2.2vw, 12px)',
-              }}
-              className="border font-bold whitespace-nowrap"
-            >
-              <span
-                style={{
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '9999px',
-                  backgroundColor: '#38BDF8',
-                  boxShadow: '0 0 8px #38BDF8',
-                  flexShrink: 0,
-                }}
-              />
-              <span>لماذا ORxai؟</span>
-            </div>
-
-            {/* 2-Line Headline */}
-            <h2
-              style={{
-                fontSize: 'clamp(1rem, 4.1vw, 2.45rem)',
-                lineHeight: 1.26,
-                marginTop: 'clamp(8px, 1.8vw, 16px)',
-              }}
-              className="font-extrabold tracking-tight"
-            >
-              <span style={{ color: '#FFFFFF', display: 'block', whiteSpace: 'nowrap' }}>
-                كل خدمة مستقلة ..
-              </span>
-              <span
-                style={{
-                  color: '#38BDF8',
-                  display: 'block',
-                  whiteSpace: 'nowrap',
-                  marginTop: '2px',
-                }}
-              >
-                وكل شيء في مكان واحد.
-              </span>
-            </h2>
-
-            {/* 3 Feature Columns with vertical dividers (Cloud, ShieldCheck, Zap) */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                width: '100%',
-                marginTop: 'clamp(14px, 3vw, 28px)',
-              }}
-              className="divide-x divide-x-reverse divide-slate-800/90"
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  padding: '0 4px',
-                }}
-              >
-                <Cloud size={18} className="text-sky-400" strokeWidth={1.8} />
-                <span
-                  style={{
-                    color: '#E2E8F0',
-                    fontSize: 'clamp(8.5px, 2vw, 12px)',
-                    marginTop: '6px',
-                    whiteSpace: 'nowrap',
-                  }}
-                  className="font-bold leading-tight"
-                >
-                  سرعة وأداء فائق
-                </span>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  padding: '0 4px',
-                }}
-              >
-                <ShieldCheck size={18} className="text-sky-400" strokeWidth={1.8} />
-                <span
-                  style={{
-                    color: '#E2E8F0',
-                    fontSize: 'clamp(8.5px, 2vw, 12px)',
-                    marginTop: '6px',
-                    whiteSpace: 'nowrap',
-                  }}
-                  className="font-bold leading-tight"
-                >
-                  أمان وموثوقية
-                </span>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center',
-                  padding: '0 4px',
-                }}
-              >
-                <Zap size={18} className="text-sky-400" strokeWidth={1.8} />
-                <span
-                  style={{
-                    color: '#E2E8F0',
-                    fontSize: 'clamp(8.5px, 2vw, 12px)',
-                    marginTop: '6px',
-                    whiteSpace: 'nowrap',
-                  }}
-                  className="font-bold leading-tight"
-                >
-                  إدارة سحابية سهلة
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Left Column in RTL: 3D Sculpted Blue Infinity Symbol on Dark Pedestal */}
-          <div style={{ minWidth: 0, width: '100%' }}>
-            <InfinityPedestalVisual />
-          </div>
-        </section>
-
-        {/* --- D. SCROLL INDICATOR PILL (Matches Bottom Center of Reference Image) --- */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px',
-            marginTop: 'clamp(16px, 3vw, 32px)',
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: '1px',
-              height: '14px',
-              backgroundColor: 'rgba(148, 163, 184, 0.2)',
-            }}
-          />
-          <a
-            href="#services-suite"
-            aria-label="استعراض القوالب والاستوديو التفاعلي"
-            style={{
-              width: '24px',
-              height: '38px',
-              borderRadius: '9999px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'rgba(8, 17, 40, 0.85)',
-              borderColor: 'rgba(56, 189, 248, 0.35)',
-              color: '#93C5FD',
-            }}
-            className="border transition-all duration-300 hover:border-sky-400 hover:text-white"
-          >
-            <ArrowDown size={13} className="animate-bounce" />
-          </a>
-          <span
-            aria-hidden
-            style={{
-              width: '1px',
-              height: '14px',
-              backgroundColor: 'rgba(148, 163, 184, 0.2)',
-            }}
-          />
-        </div>
-      </main>
-
-      {/* Curved Glowing Horizon Wave Divider (Matches Bottom Wave of Reference Image) */}
-      <div aria-hidden className="relative w-full overflow-hidden leading-none select-none">
-        <svg
-          viewBox="0 0 1440 84"
-          fill="none"
-          preserveAspectRatio="none"
-          className="block h-7 w-full sm:h-14"
-          style={{ width: '100%', height: '36px', display: 'block' }}
-        >
-          <path
-            d="M 0 36 C 320 -8 580 78 920 56 C 1180 38 1320 14 1440 8 L 1440 84 L 0 84 Z"
-            fill="#060E24"
-          />
-          <path
-            d="M 0 36 C 320 -8 580 78 920 56 C 1180 38 1320 14 1440 8"
-            stroke="rgba(56, 189, 248, 0.32)"
-            strokeWidth="2"
-          />
-        </svg>
-      </div>
-
-      {/* =====================================================================
-          3. RETAINED ESSENTIAL INFORMATION (Compact, Dark Sapphire Theme, Zero Filler)
-             - Interactive Template Selector & Live Studio Preview (#services-suite & #interactive-studio)
-             - Compact WhatsApp Smart Assistant & FAQ (#whatsapp-assistant & #faq)
-      ====================================================================== */}
-      <div
-        style={{
-          backgroundImage: 'linear-gradient(180deg, #060E24 0%, #040918 100%)',
-          backgroundColor: '#060E24',
-          color: '#FFFFFF',
-        }}
-        className="relative z-10 pb-12 sm:pb-20"
-      >
-        <div className="mx-auto max-w-6xl space-y-8 sm:space-y-12 px-3.5 pt-4 sm:px-8 sm:pt-6">
-          {/* --- SECTION 3A: INTERACTIVE TEMPLATES & STUDIO PREVIEWER --- */}
-          <section
-            id="services-suite"
-            data-testid="services-suite"
-            className="scroll-mt-6"
-          >
-            {/* Compact Header + Category Tabs */}
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '10px',
-              }}
-              className="border-b border-slate-800/80 pb-3.5 sm:pb-5"
-            >
-              <div>
-                <span
-                  style={{ color: '#38BDF8', fontSize: '11px' }}
-                  className="font-extrabold tracking-wider uppercase"
-                >
-                  القوالب والاستوديو التفاعلي
-                </span>
-                <h2
-                  style={{
-                    color: '#FFFFFF',
-                    fontSize: 'clamp(1rem, 2.8vw, 1.5rem)',
-                  }}
-                  className="mt-0.5 font-extrabold"
-                >
-                  اختر القالب وجرّب هويتك مباشرة
-                </h2>
-              </div>
-
-              {/* Category Switcher Pills */}
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  borderRadius: '9999px',
-                  padding: '4px',
-                  backgroundColor: 'rgba(10, 20, 48, 0.9)',
-                  borderColor: 'rgba(56, 189, 248, 0.24)',
-                }}
-                className="border"
-              >
-                <button
-                  type="button"
-                  onClick={() => handleSelectCategory('websites', false)}
-                  style={
-                    activeCategoryId === 'websites'
-                      ? {
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          borderRadius: '9999px',
-                          padding: '6px 12px',
-                          backgroundImage: 'linear-gradient(90deg, #1D4ED8 0%, #0EA5E9 100%)',
-                          backgroundColor: '#1D4ED8',
-                          color: '#FFFFFF',
-                          fontSize: '11px',
-                        }
-                      : {
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          borderRadius: '9999px',
-                          padding: '6px 12px',
-                          backgroundImage: 'none',
-                          backgroundColor: 'transparent',
-                          color: '#94A3B8',
-                          fontSize: '11px',
-                        }
-                  }
-                  className="font-extrabold transition whitespace-nowrap"
-                >
-                  <Globe size={13} />
-                  <span>مواقع وواجهات (5)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectCategory('tools', false)}
-                  style={
-                    activeCategoryId === 'tools'
-                      ? {
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          borderRadius: '9999px',
-                          padding: '6px 12px',
-                          backgroundImage: 'linear-gradient(90deg, #1D4ED8 0%, #0EA5E9 100%)',
-                          backgroundColor: '#1D4ED8',
-                          color: '#FFFFFF',
-                          fontSize: '11px',
-                        }
-                      : {
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          borderRadius: '9999px',
-                          padding: '6px 12px',
-                          backgroundImage: 'none',
-                          backgroundColor: 'transparent',
-                          color: '#94A3B8',
-                          fontSize: '11px',
-                        }
-                  }
-                  className="font-extrabold transition whitespace-nowrap"
-                >
-                  <Layers size={13} />
-                  <span>أدوات تفاعلية (4)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Sleek Horizontal Pill Strip for Sub-service Templates (No boxy square buttons!) */}
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                gap: '6px',
-                marginTop: '12px',
-              }}
-            >
-              {activeCategoryGroup.items.map((item) => {
-                const isSelected = studioPreset === item.templateId;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    data-testid={`button-subservice-${item.id}`}
-                    onClick={() =>
-                      handleSelectSubService(activeCategoryGroup.id, item.templateId, false)
-                    }
-                    style={
-                      isSelected
-                        ? {
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            borderRadius: '9999px',
-                            padding: '6px 12px',
-                            backgroundImage:
-                              'linear-gradient(90deg, rgba(29, 78, 216, 0.55) 0%, rgba(14, 165, 233, 0.35) 100%)',
-                            backgroundColor: 'rgba(15, 29, 68, 0.95)',
-                            borderColor: '#38BDF8',
-                            color: '#FFFFFF',
-                            fontSize: '11.5px',
-                          }
-                        : {
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            borderRadius: '9999px',
-                            padding: '6px 12px',
-                            backgroundImage: 'none',
-                            backgroundColor: 'rgba(11, 22, 52, 0.72)',
-                            borderColor: 'rgba(148, 163, 184, 0.22)',
-                            color: '#CBD5E1',
-                            fontSize: '11.5px',
-                          }
-                    }
-                    className="border font-extrabold transition-all duration-200 hover:border-sky-400/60 whitespace-nowrap"
-                  >
-                    <span>{item.shortLabel}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Interactive Live Studio Box (#interactive-studio) */}
-            <div
-              id="interactive-studio"
-              data-testid="interactive-studio"
-              style={{
-                backgroundImage:
-                  'linear-gradient(145deg, rgba(12, 25, 58, 0.9) 0%, rgba(6, 13, 32, 0.96) 100%)',
-                borderColor: 'rgba(56, 189, 248, 0.3)',
-              }}
-              className="mt-4 grid grid-cols-1 gap-4 sm:gap-6 rounded-2xl sm:rounded-3xl border p-3.5 sm:p-6 lg:grid-cols-12"
-            >
-              {/* Controls Column (5 cols) */}
-              <div className="flex flex-col justify-between space-y-3.5 lg:col-span-5">
-                <div className="space-y-3">
+                <div>
                   <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '8px',
-                    }}
+                    style={{ color: '#7DD3FC' }}
+                    className="inline-flex items-center gap-3 text-xs font-bold tracking-wide sm:text-sm"
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Wand2 size={14} className="text-sky-400" />
-                      <span
-                        style={{ color: '#38BDF8', fontSize: '12px' }}
-                        className="font-extrabold"
-                      >
-                        تخصيص فوري للقالب المختار
-                      </span>
-                    </div>
-                    <span
-                      style={{
-                        borderRadius: '9999px',
-                        padding: '2px 10px',
-                        backgroundColor: 'rgba(37, 99, 235, 0.25)',
-                        borderColor: 'rgba(56, 189, 248, 0.35)',
-                        color: '#E0F2FE',
-                        fontSize: '10px',
-                      }}
-                      className="border font-bold whitespace-nowrap"
-                    >
-                      {previewState.preset.label}
+                    <span style={{ color: '#38BDF8' }} className="font-mono tabular-nums">
+                      01
+                    </span>
+                    <span style={{ color: 'rgba(255, 255, 255, 0.35)' }}>/</span>
+                    <span style={{ color: '#BAE6FD' }}>
+                      المنظومة السحابية المتكاملة لبناء المواقع والأعمال
                     </span>
                   </div>
 
-                  {/* Project Title Input */}
-                  <div>
-                    <label
-                      htmlFor="studio-title-input"
-                      style={{ color: '#CBD5E1', fontSize: '11px' }}
-                      className="mb-1 block font-bold"
+                  <h1
+                    style={{ color: '#FFFFFF' }}
+                    className="mt-5 font-serif text-[clamp(2.05rem,4.2vw,4rem)] font-extrabold leading-[1.45] tracking-tight text-white sm:leading-[1.36]"
+                  >
+                    <span style={{ color: '#FFFFFF' }}>بوابتك الرقمية المتكاملة.</span>
+                    <span
+                      style={{ color: '#38BDF8' }}
+                      className="mt-2 block py-1"
                     >
-                      اسم مشروعك أو علامتك التجارية
-                    </label>
-                    <input
-                      id="studio-title-input"
-                      data-testid="input-wb-title"
-                      type="text"
-                      value={studioTitle}
-                      onChange={(e) => setStudioTitle(e.target.value)}
-                      placeholder={previewState.preset.defaultTitle}
+                      تُبنى في المنصة. وتُدار بذكاء.
+                    </span>
+                  </h1>
+
+                  <p
+                    style={{ color: '#CBD5E1' }}
+                    className="mt-6 max-w-2xl text-lg leading-[1.85] text-slate-300 sm:text-xl"
+                  >
+                    منظومة مقسمة بوضوح إلى قسمين رئيسيين: مواقع وواجهات رقمية، وأدوات تفاعلية
+                    (استبيان، حجوزات، دعوات، عروض أسعار) — لكل خدمة قالبها المستقل ومرتبطة بقاعدة البيانات.
+                  </p>
+                </div>
+
+                <div className="mt-10">
+                  <div className="flex flex-wrap items-center gap-4">
+                    <Link
+                      href={isSignedIn ? '/dashboard' : '/login'}
                       style={{
-                        width: '100%',
-                        borderRadius: '12px',
-                        padding: '8px 12px',
-                        backgroundColor: 'rgba(7, 14, 34, 0.9)',
-                        borderColor: 'rgba(56, 189, 248, 0.3)',
+                        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                        backgroundColor: '#2563EB',
                         color: '#FFFFFF',
-                        fontSize: '12px',
+                        borderColor: 'rgba(147, 197, 253, 0.35)',
                       }}
-                      className="border font-bold placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
-                    />
+                      className="inline-flex h-14 items-center justify-center gap-3 rounded-2xl border px-8 text-base font-extrabold text-white shadow-xl whitespace-nowrap shrink-0 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl"
+                      data-testid="button-hero-start"
+                    >
+                      <span style={{ color: '#FFFFFF' }}>
+                        {isSignedIn ? 'الدخول إلى لوحة التحكم' : 'ابدأ تأسيس منصتك الآن'}
+                      </span>
+                      <ArrowLeft size={18} style={{ color: '#BAE6FD' }} />
+                    </Link>
+
+                    <a
+                      href="#interactive-studio"
+                      style={{
+                        backgroundColor: '#131F3A',
+                        borderColor: '#334155',
+                        color: '#FFFFFF',
+                      }}
+                      className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border px-7 text-base font-bold text-white whitespace-nowrap shrink-0 transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-400"
+                      data-testid="link-hero-workbench"
+                    >
+                      <span style={{ color: '#FFFFFF' }}>تجربة الاستوديو التفاعلي</span>
+                    </a>
                   </div>
 
-                  {/* Color & Style Row */}
-                  <div className="space-y-2.5">
-                    <div>
-                      <span
-                        style={{
-                          color: '#CBD5E1',
-                          fontSize: '11px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '6px',
-                        }}
-                        className="font-bold"
-                      >
-                        <Palette size={13} className="text-sky-400" />
-                        <span>الهوية اللونية</span>
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {EXECUTIVE_THEMES.map((theme) => {
-                          const active = studioColor === theme.hex;
-                          return (
-                            <button
-                              key={theme.hex}
-                              type="button"
-                              title={theme.name}
-                              onClick={() => setStudioColor(theme.hex)}
-                              style={{
-                                width: '22px',
-                                height: '22px',
-                                minWidth: '22px',
-                                maxWidth: '22px',
-                                borderRadius: '9999px',
-                                backgroundColor: theme.hex,
-                                borderColor: active ? '#FFFFFF' : 'transparent',
-                              }}
-                              className="border-2 transition-transform hover:scale-110"
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
+                  {/* Clean unboxed trust strip */}
+                  <div
+                    style={{
+                      borderTopColor: 'rgba(148, 163, 184, 0.2)',
+                      color: '#CBD5E1',
+                    }}
+                    className="mt-10 flex flex-wrap items-center gap-y-2 border-t pt-6 text-sm font-semibold"
+                  >
+                    <span style={{ color: '#E2E8F0' }}>قالب مستقل لكل خدمة</span>
+                    <span className="mx-3" style={{ color: '#38BDF8' }}>
+                      ·
+                    </span>
+                    <span style={{ color: '#E2E8F0' }}>توثيق جهاز لمرة واحدة</span>
+                    <span className="mx-3" style={{ color: '#34D399' }}>
+                      ·
+                    </span>
+                    <span style={{ color: '#E2E8F0' }}>قسمان منظمان بدون حشو</span>
+                  </div>
+                </div>
+              </motion.div>
 
-                    <div>
+              {/* Left Column: Sculpted Multi-Layered Live Platform Window (5 Cols) */}
+              <motion.div
+                initial={{ opacity: 0, y: 28, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.7, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+                className="relative flex flex-col lg:col-span-5"
+              >
+                {/* Outer luminous glass frame */}
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #0F172A 0%, #0B132B 100%)',
+                    backgroundColor: '#0B132B',
+                    borderColor: '#1E293B',
+                    color: '#FFFFFF',
+                  }}
+                  className="relative overflow-hidden rounded-3xl border p-6 shadow-2xl sm:p-7"
+                >
+                  {/* Top Window Chrome */}
+                  <div
+                    style={{ borderBottomColor: '#1E293B' }}
+                    className="flex items-center justify-between border-b pb-4"
+                  >
+                    <div className="flex items-center gap-2">
                       <span
-                        style={{
-                          color: '#CBD5E1',
-                          fontSize: '11px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '6px',
-                        }}
-                        className="font-bold"
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: '#FB7185' }}
+                      />
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: '#38BDF8' }}
+                      />
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ backgroundColor: '#34D399' }}
+                      />
+                      <span
+                        dir="ltr"
+                        style={{ color: '#94A3B8' }}
+                        className="mr-2 font-mono text-xs font-semibold"
                       >
-                        <Sparkles size={13} className="text-sky-400" />
-                        <span>نمط العرض</span>
+                        studio.orxai.app/{presetKey}
                       </span>
+                    </div>
+                    <span
+                      style={{ color: '#34D399' }}
+                      className="font-mono text-xs font-bold"
+                    >
+                      {activePreset.growthDelta}
+                    </span>
+                  </div>
+
+                  {/* Interactive 4-Sector Switcher with Sliding Spring Pill */}
+                  <LayoutGroup id="hero-sector-tabs">
+                    <div
+                      style={{
+                        backgroundColor: '#060B18',
+                        borderColor: '#1E293B',
+                      }}
+                      className="my-5 grid grid-cols-2 gap-2 rounded-2xl border p-1.5"
+                    >
+                      {HERO_PRESET_IDS.map((id) => {
+                        const preset = STUDIO_PRESETS[id];
+                        const Icon = PRESET_ICONS[preset.id] || Store;
+                        const isSelected = presetKey === preset.id;
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => setPresetKey(preset.id)}
+                            style={
+                              isSelected
+                                ? {
+                                    backgroundColor: '#2563EB',
+                                    color: '#FFFFFF',
+                                  }
+                                : {
+                                    backgroundColor: 'transparent',
+                                    color: '#CBD5E1',
+                                  }
+                            }
+                            className="relative z-10 flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-right text-xs font-bold whitespace-nowrap transition-colors duration-200 sm:text-sm"
+                          >
+                            {isSelected && (
+                              <motion.span
+                                layoutId="hero-preset-active-bg"
+                                transition={SMOOTH_SPRING}
+                                style={{
+                                  background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                                  backgroundColor: '#2563EB',
+                                }}
+                                className="absolute inset-0 -z-10 rounded-xl shadow-md"
+                              />
+                            )}
+                            <Icon
+                              size={16}
+                              style={{ color: isSelected ? '#FFFFFF' : '#38BDF8' }}
+                              className="shrink-0"
+                            />
+                            <span style={{ color: isSelected ? '#FFFFFF' : '#CBD5E1' }}>
+                              {preset.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </LayoutGroup>
+
+                  {/* Animated Morphing Stage Content */}
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activePreset.id}
+                      initial={{ opacity: 0, y: 12, scale: 0.985 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -10, scale: 0.985 }}
+                      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                    >
+                      {/* Visual SVG Banner Header */}
                       <div
                         style={{
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: '6px',
+                          backgroundColor: '#060B18',
+                          borderColor: '#1E293B',
                         }}
+                        className="relative h-28 overflow-hidden rounded-2xl border"
                       >
-                        {STYLE_MODES.map((mode) => {
-                          const active = studioStyle === mode.id;
+                        <StudioHeroBannerArt
+                          presetId={activePreset.id}
+                          primaryHex="#38BDF8"
+                          secondaryHex="#6366F1"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-between px-5">
+                          <div>
+                            <p
+                              style={{ color: '#7DD3FC' }}
+                              className="text-xs font-bold"
+                            >
+                              {activePreset.badge}
+                            </p>
+                            <h2
+                              style={{ color: '#FFFFFF' }}
+                              className="mt-1 font-serif text-lg font-extrabold sm:text-xl"
+                            >
+                              {activePreset.defaultTitle}
+                            </h2>
+                          </div>
+                          <div className="text-left">
+                            <span
+                              style={{ color: '#38BDF8' }}
+                              className="block font-mono text-2xl font-extrabold tabular-nums"
+                            >
+                              {activePreset.kpiValue}
+                            </span>
+                            <span
+                              style={{ color: '#CBD5E1' }}
+                              className="text-[11px] font-semibold"
+                            >
+                              {activePreset.kpiLabel}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Featured Items List */}
+                      <div className="mt-4 space-y-2.5">
+                        {activePreset.items.slice(0, 2).map((item, idx) => (
+                          <div
+                            key={item.name}
+                            style={{
+                              backgroundColor: '#111C35',
+                              borderColor: '#1E293B',
+                              color: '#FFFFFF',
+                            }}
+                            className="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3.5 transition-colors hover:border-sky-400/40"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span
+                                style={{
+                                  backgroundColor: 'rgba(14, 165, 233, 0.2)',
+                                  color: '#7DD3FC',
+                                }}
+                                className="grid size-8 shrink-0 place-items-center rounded-lg font-mono text-xs font-extrabold tabular-nums"
+                              >
+                                0{idx + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <p
+                                  style={{ color: '#FFFFFF' }}
+                                  className="truncate text-sm font-bold sm:text-base"
+                                >
+                                  {item.name}
+                                </p>
+                                <p
+                                  style={{ color: '#94A3B8' }}
+                                  className="mt-0.5 truncate text-xs"
+                                >
+                                  {item.meta}
+                                </p>
+                              </div>
+                            </div>
+                            <span
+                              style={{ color: '#38BDF8' }}
+                              className="shrink-0 font-mono text-sm font-extrabold tabular-nums sm:text-base"
+                            >
+                              {item.price}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
+
+                  {/* Bottom Bar with Live Sparkline */}
+                  <div
+                    style={{ borderTopColor: '#1E293B' }}
+                    className="mt-5 flex items-center justify-between border-t pt-4 text-xs sm:text-sm"
+                  >
+                    <div className="flex items-end gap-1 h-5" aria-hidden>
+                      {activePreset.sparkline.map((val, i) => (
+                        <span
+                          key={i}
+                          className="w-1.5 rounded-t-xs transition-all duration-300"
+                          style={{
+                            height: `${Math.round((val / 100) * 20)}px`,
+                            backgroundColor: '#38BDF8',
+                          }}
+                        />
+                      ))}
+                      <span
+                        style={{ color: '#CBD5E1' }}
+                        className="mr-2 font-semibold"
+                      >
+                        مزامنة حية مع البوت
+                      </span>
+                    </div>
+                    <Link
+                      href={`/dashboard?create=1&template=${presetKey}`}
+                      style={{ color: '#38BDF8' }}
+                      className="font-bold whitespace-nowrap shrink-0 transition-colors hover:text-sky-300"
+                    >
+                      اعتماد القالب ←
+                    </Link>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Executive Architectural Metrics Strip */}
+            <div
+              style={{
+                backgroundColor: '#0B132B',
+                borderColor: '#1E293B',
+                color: '#FFFFFF',
+              }}
+              className="mt-16 grid grid-cols-2 gap-4 rounded-3xl border p-6 sm:grid-cols-4 sm:gap-6 sm:p-8"
+            >
+              {[
+                { num: '12', label: 'خدمة رقمية متكاملة داخل المنصة', hex: '#38BDF8' },
+                { num: '100%', label: 'توثيق أمني معتمد عبر بوت واتساب', hex: '#34D399' },
+                { num: '60s', label: 'سرعة إطلاق الموقع الرسمي', hex: '#38BDF8' },
+                { num: '24/7', label: 'تعديلات نصية وإحصائيات فورية', hex: '#34D399' },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  style={{ borderRightColor: '#1E293B' }}
+                  className="border-r pr-4 first:border-r-0 first:pr-0"
+                >
+                  <span
+                    dir="ltr"
+                    style={{ color: stat.hex }}
+                    className="block font-mono text-3xl font-extrabold tabular-nums sm:text-4xl"
+                  >
+                    {stat.num}
+                  </span>
+                  <span
+                    style={{ color: '#CBD5E1' }}
+                    className="mt-1.5 block text-sm font-semibold sm:text-base"
+                  >
+                    {stat.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Sculpted Wave Transition from Hero (#0F172A) to Studio (#EEF2F6) */}
+          <SectionCurveDivider fromColor="#0F172A" toColor="#EEF2F6" />
+        </section>
+
+        {/* =====================================================================
+            SECTION 2: EXECUTIVE INTERACTIVE STUDIO (#interactive-studio)
+            ===================================================================== */}
+        <section
+          id="interactive-studio"
+          data-testid="interactive-studio"
+          style={{ backgroundColor: '#EEF2F6', color: '#0F172A' }}
+          className="scroll-mt-20 bg-[#EEF2F6] py-20 lg:py-28"
+        >
+          <div className="mx-auto max-w-[1380px] px-6 sm:px-10">
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ duration: 0.5 }}
+              style={{ borderBottomColor: '#CBD5E1' }}
+              className="flex flex-col justify-between gap-6 border-b pb-10 lg:flex-row lg:items-end"
+            >
+              <div>
+                <p style={{ color: '#1D4ED8' }} className="text-sm font-bold">
+                  02 / استوديو التصميم المعماري الحي
+                </p>
+                <h2
+                  style={{ color: '#0F172A' }}
+                  className="mt-2.5 font-serif text-[clamp(1.9rem,3.2vw,2.85rem)] font-extrabold leading-[1.35]"
+                >
+                  صمّم واجهة منشأتك وعاينها لحظياً
+                </h2>
+              </div>
+              <p
+                style={{ color: '#475569' }}
+                className="max-w-md text-base leading-relaxed sm:text-lg"
+              >
+                اختر قطاع أعمالك، حدد الهوية اللونية والطابع البصري، وشاهد التحول الفوري
+                لموقعك قبل اعتماده.
+              </p>
+            </motion.div>
+
+            <div className="mt-12 grid grid-cols-1 items-stretch gap-8 lg:grid-cols-12 lg:gap-10">
+              {/* Right Configurator Card (5 Columns) */}
+              <div
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderColor: '#CBD5E1',
+                  color: '#0F172A',
+                }}
+                className="flex flex-col justify-between rounded-3xl border p-7 shadow-xl sm:p-9 lg:col-span-5"
+              >
+                <div className="space-y-7">
+                  {/* 1. Sector Switcher */}
+                  <div>
+                    <label
+                      style={{ color: '#0F172A' }}
+                      className="block text-sm font-extrabold sm:text-base"
+                    >
+                      1. قطاع النشاط
+                    </label>
+                    <LayoutGroup id="studio-sector-tabs">
+                      <div className="mt-3 grid grid-cols-2 gap-2.5">
+                        {Object.values(STUDIO_PRESETS).map((tpl) => {
+                          const Icon = PRESET_ICONS[tpl.id] || Store;
+                          const active = presetKey === tpl.id;
                           return (
                             <button
-                              key={mode.id}
+                              key={tpl.id}
                               type="button"
-                              data-testid={`button-studio-style-${mode.id}`}
-                              onClick={() => setStudioStyle(mode.id)}
+                              onClick={() => setPresetKey(tpl.id)}
                               style={
                                 active
                                   ? {
-                                      borderRadius: '9999px',
-                                      padding: '5px 12px',
-                                      backgroundColor: 'rgba(37, 99, 235, 0.35)',
-                                      borderColor: '#38BDF8',
+                                      backgroundColor: '#0B132B',
+                                      borderColor: '#1D4ED8',
                                       color: '#FFFFFF',
-                                      fontSize: '11px',
                                     }
                                   : {
-                                      borderRadius: '9999px',
-                                      padding: '5px 12px',
-                                      backgroundColor: 'rgba(15, 23, 42, 0.7)',
-                                      borderColor: 'rgba(148, 163, 184, 0.2)',
-                                      color: '#94A3B8',
-                                      fontSize: '11px',
+                                      backgroundColor: '#F1F5F9',
+                                      borderColor: '#CBD5E1',
+                                      color: '#0F172A',
                                     }
                               }
-                              className="border font-bold whitespace-nowrap"
+                              className="relative z-10 flex items-center gap-2.5 rounded-xl border px-4 py-3.5 text-right text-sm font-bold whitespace-nowrap transition-colors duration-200"
+                              data-testid={`button-wb-template-${tpl.id}`}
                             >
-                              {mode.name}
+                              {active && (
+                                <motion.span
+                                  layoutId="studio-sector-pill"
+                                  transition={SMOOTH_SPRING}
+                                  style={{
+                                    background: 'linear-gradient(135deg, #0B132B 0%, #1D4ED8 100%)',
+                                    backgroundColor: '#0B132B',
+                                  }}
+                                  className="absolute inset-0 -z-10 rounded-xl shadow-md"
+                                />
+                              )}
+                              <Icon
+                                size={17}
+                                style={{ color: active ? '#38BDF8' : '#2563EB' }}
+                                className="shrink-0"
+                              />
+                              <span style={{ color: active ? '#FFFFFF' : '#0F172A' }}>
+                                {tpl.label}
+                              </span>
                             </button>
                           );
                         })}
                       </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Launch Button */}
-                <Link
-                  href={launchHref}
-                  data-testid="link-wb-launch"
-                  style={{
-                    display: 'flex',
-                    width: '100%',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    borderRadius: '9999px',
-                    padding: '9px 16px',
-                    backgroundImage: 'linear-gradient(90deg, #1D4ED8 0%, #0EA5E9 100%)',
-                    color: '#FFFFFF',
-                    fontSize: '12px',
-                  }}
-                  className="font-extrabold shadow-md transition hover:opacity-95"
-                >
-                  <span>إطلاق «{previewState.preset.label}» الآن</span>
-                  <ExternalLink size={14} />
-                </Link>
-              </div>
-
-              {/* Live Preview Canvas Column (7 cols) */}
-              <div className="lg:col-span-7">
-                <div
-                  style={{
-                    backgroundColor: previewState.isDarkCanvas ? '#070E22' : '#0F172A',
-                    borderColor: 'rgba(56, 189, 248, 0.28)',
-                  }}
-                  className="overflow-hidden rounded-xl sm:rounded-2xl border p-3 sm:p-5"
-                >
-                  {/* Banner */}
-                  <div
-                    className="relative w-full overflow-hidden rounded-xl border border-slate-800"
-                    style={{ height: '108px' }}
-                  >
-                    <StudioHeroBannerArt
-                      presetId={previewState.preset.id}
-                      primaryHex={previewState.theme.hex}
-                      secondaryHex={previewState.theme.secondaryHex}
-                    />
-                    <div className="absolute inset-0 flex flex-col justify-between p-3 sm:p-4">
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <span
-                          style={{
-                            borderRadius: '9999px',
-                            padding: '2px 10px',
-                            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                            borderColor: 'rgba(56, 189, 248, 0.35)',
-                            color: '#7DD3FC',
-                            fontSize: '10px',
-                          }}
-                          className="border font-bold"
-                        >
-                          {previewState.preset.badge}
-                        </span>
-                        <span
-                          style={{ color: '#34D399', fontSize: '11px' }}
-                          className="font-mono font-extrabold"
-                        >
-                          {previewState.preset.growthDelta}
-                        </span>
-                      </div>
-                      <div>
-                        <h3
-                          style={{ color: '#FFFFFF', fontSize: '15px' }}
-                          className="font-extrabold"
-                        >
-                          {previewState.displayTitle}
-                        </h3>
-                        <p
-                          style={{ color: '#CBD5E1', fontSize: '11px' }}
-                          className="line-clamp-1"
-                        >
-                          {previewState.preset.subtitle}
-                        </p>
-                      </div>
-                    </div>
+                    </LayoutGroup>
                   </div>
 
-                  {/* 3 Preview Items (3 columns side by side on mobile & desktop) */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                      gap: '8px',
-                      marginTop: '10px',
-                    }}
-                  >
-                    {previewState.preset.items.map((item) => (
-                      <div
-                        key={item.name}
-                        style={{
-                          backgroundColor: 'rgba(15, 23, 42, 0.85)',
-                          borderColor: 'rgba(148, 163, 184, 0.16)',
-                          borderRadius: '10px',
-                          padding: '8px',
-                        }}
-                        className="flex flex-col justify-between border"
-                      >
-                        <div>
-                          <span
-                            style={{ color: '#38BDF8', fontSize: '9.5px' }}
-                            className="font-bold"
-                          >
-                            {item.tag}
-                          </span>
-                          <p
-                            style={{ color: '#FFFFFF', fontSize: '11px' }}
-                            className="mt-0.5 line-clamp-1 font-extrabold"
-                          >
-                            {item.name}
-                          </p>
-                          <p
-                            style={{ color: '#94A3B8', fontSize: '9.5px' }}
-                            className="mt-0.5 line-clamp-1"
-                          >
-                            {item.meta}
-                          </p>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginTop: '6px',
-                            paddingTop: '6px',
-                          }}
-                          className="border-t border-slate-800"
-                        >
-                          <span
-                            style={{ color: '#FFFFFF', fontSize: '10.5px' }}
-                            className="font-mono font-extrabold"
-                          >
-                            {item.price}
-                          </span>
-                          <Check size={12} className="text-emerald-400" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* --- SECTION 3B: COMPACT WHATSAPP ASSISTANT & FAQ --- */}
-          <section
-            id="whatsapp-assistant"
-            data-testid="whatsapp-assistant-section"
-            className="grid grid-cols-1 gap-4 sm:gap-6 pt-2 lg:grid-cols-12"
-          >
-            {/* WhatsApp Executive Companion (7 cols) */}
-            <div
-              style={{
-                backgroundImage:
-                  'linear-gradient(145deg, rgba(12, 25, 58, 0.86) 0%, rgba(6, 13, 32, 0.94) 100%)',
-                borderColor: 'rgba(56, 189, 248, 0.26)',
-              }}
-              className="rounded-2xl sm:rounded-3xl border p-4 sm:p-6 lg:col-span-7"
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '10px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '10px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: 'rgba(16, 185, 129, 0.16)',
-                      borderColor: 'rgba(52, 211, 153, 0.4)',
-                      color: '#34D399',
-                      flexShrink: 0,
-                    }}
-                    className="border"
-                  >
-                    <Bot size={16} />
-                  </span>
+                  {/* 2. Brand Name Input */}
                   <div>
-                    <h3
-                      style={{ color: '#FFFFFF', fontSize: '14px' }}
-                      className="font-extrabold"
+                    <label
+                      htmlFor="wb-title-input"
+                      style={{ color: '#0F172A' }}
+                      className="block text-sm font-extrabold sm:text-base"
                     >
-                      مساعد ORxai الذكي عبر واتساب
-                    </h3>
-                    <p style={{ color: '#94A3B8', fontSize: '11px' }}>
-                      توثيق الدخول، تعديل المحتوى برسالة، وتقارير الزيارات الحية
-                    </p>
+                      2. اسم المنشأة أو العلامة التجارية
+                    </label>
+                    <input
+                      id="wb-title-input"
+                      type="text"
+                      value={customTitle}
+                      onChange={(e) => setCustomTitle(e.target.value)}
+                      placeholder={activePreset.defaultTitle}
+                      style={{
+                        backgroundColor: '#F1F5F9',
+                        borderColor: '#CBD5E1',
+                        color: '#0F172A',
+                      }}
+                      className="mt-2.5 h-13 w-full rounded-xl border px-4 text-base font-bold outline-none transition-all focus:border-blue-600 focus:ring-4 focus:ring-blue-500/10"
+                      data-testid="input-wb-title"
+                    />
+                  </div>
+
+                  {/* 3. Architectural Style */}
+                  <div>
+                    <label
+                      style={{ color: '#0F172A' }}
+                      className="block text-sm font-extrabold sm:text-base"
+                    >
+                      3. الطابع البصري
+                    </label>
+                    <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+                      {STYLE_MODES.map((st) => {
+                        const active = styleMode === st.id;
+                        return (
+                          <button
+                            key={st.id}
+                            type="button"
+                            onClick={() => setStyleMode(st.id)}
+                            style={
+                              active
+                                ? {
+                                    backgroundColor: '#0B132B',
+                                    borderColor: '#1D4ED8',
+                                    color: '#FFFFFF',
+                                  }
+                                : {
+                                    backgroundColor: '#F1F5F9',
+                                    borderColor: '#CBD5E1',
+                                    color: '#0F172A',
+                                  }
+                            }
+                            className="rounded-xl border px-4 py-3 text-right transition-all duration-200"
+                            data-testid={`button-wb-style-${st.id}`}
+                          >
+                            <span
+                              style={{ color: active ? '#FFFFFF' : '#0F172A' }}
+                              className="block text-sm font-extrabold"
+                            >
+                              {st.name}
+                            </span>
+                            <span
+                              style={{ color: active ? '#7DD3FC' : '#475569' }}
+                              className="mt-0.5 block text-[11px] font-medium"
+                            >
+                              {st.desc}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 4. Sovereign Color Theme */}
+                  <div>
+                    <label
+                      style={{ color: '#0F172A' }}
+                      className="block text-sm font-extrabold sm:text-base"
+                    >
+                      4. الهوية اللونية
+                    </label>
+                    <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+                      {EXECUTIVE_THEMES.map((sw) => {
+                        const active = accentHex === sw.hex;
+                        return (
+                          <button
+                            key={sw.hex}
+                            type="button"
+                            onClick={() => setAccentHex(sw.hex)}
+                            style={
+                              active
+                                ? {
+                                    backgroundColor: '#0B132B',
+                                    borderColor: '#1D4ED8',
+                                    color: '#FFFFFF',
+                                  }
+                                : {
+                                    backgroundColor: '#F1F5F9',
+                                    borderColor: '#CBD5E1',
+                                    color: '#0F172A',
+                                  }
+                            }
+                            className="flex items-center gap-3 rounded-xl border px-4 py-3 text-sm font-bold transition-all duration-200"
+                          >
+                            <span
+                              className="size-5 shrink-0 rounded-full border border-white/40 shadow-xs"
+                              style={{
+                                background: `linear-gradient(135deg, ${sw.hex}, ${sw.secondaryHex})`,
+                                backgroundColor: sw.hex,
+                              }}
+                            />
+                            <span style={{ color: active ? '#FFFFFF' : '#0F172A' }}>
+                              {sw.name}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
-                {/* 3 Scenario Pill Buttons */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  {BOT_PILLARS.map((pillar) => {
-                    const active = activeBotPillar === pillar.id;
-                    return (
-                      <button
-                        key={pillar.id}
-                        type="button"
-                        data-testid={`button-bot-scenario-${pillar.id}`}
-                        onClick={() => setActiveBotPillar(pillar.id)}
-                        style={
-                          active
-                            ? {
-                                borderRadius: '9999px',
-                                padding: '5px 12px',
-                                backgroundColor: '#2563EB',
-                                borderColor: '#38BDF8',
-                                color: '#FFFFFF',
-                                fontSize: '11px',
-                              }
-                            : {
-                                borderRadius: '9999px',
-                                padding: '5px 12px',
-                                backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                                borderColor: 'rgba(148, 163, 184, 0.2)',
-                                color: '#CBD5E1',
-                                fontSize: '11px',
-                              }
-                        }
-                        className="border font-bold transition whitespace-nowrap"
-                      >
-                        {pillar.title.split(' ')[0]} {pillar.title.split(' ')[1]}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Active Scenario Simulation */}
-              <div
-                style={{
-                  backgroundColor: 'rgba(5, 11, 26, 0.85)',
-                  borderColor: 'rgba(56, 189, 248, 0.18)',
-                }}
-                className="mt-3.5 rounded-xl sm:rounded-2xl border p-3 sm:p-4"
-              >
                 <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: '12px',
-                  }}
+                  style={{ borderTopColor: '#E2E8F0' }}
+                  className="mt-8 border-t pt-6"
                 >
-                  <span style={{ color: '#38BDF8' }} className="font-bold">
-                    {currentBot.title}
-                  </span>
-                  <span
-                    style={{ color: '#34D399', fontSize: '10px' }}
-                    className="font-mono font-bold"
-                  >
-                    {currentBot.badge}
-                  </span>
-                </div>
-                <p style={{ color: '#94A3B8', fontSize: '11px' }} className="mt-1">
-                  {currentBot.desc}
-                </p>
-
-                <div className="mt-2.5 flex flex-col gap-1.5 text-[11px]">
-                  <div
+                  <Link
+                    href={`/dashboard?create=1&template=${presetKey}`}
                     style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      alignSelf: 'flex-start',
-                      borderRadius: '8px',
-                      padding: '6px 10px',
-                      backgroundColor: 'rgba(37, 99, 235, 0.22)',
-                      borderColor: 'rgba(56, 189, 248, 0.3)',
+                      background: 'linear-gradient(135deg, #0B132B 0%, #1D4ED8 100%)',
+                      backgroundColor: '#0B132B',
                       color: '#FFFFFF',
                     }}
-                    className="border font-bold"
+                    className="inline-flex h-14 w-full items-center justify-center gap-3 rounded-2xl px-6 text-base font-extrabold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl"
+                    data-testid="link-wb-launch"
                   >
-                    <MessageSquare size={12} className="text-sky-400" />
-                    <span>{currentBot.command}</span>
+                    <span style={{ color: '#FFFFFF' }}>
+                      اعتماد التصميم وفتحه في الاستوديو
+                    </span>
+                    <ArrowLeft size={18} style={{ color: '#38BDF8' }} />
+                  </Link>
+                </div>
+              </div>
+
+              {/* Left Live Preview Stage (7 Columns) */}
+              <div
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderColor: '#CBD5E1',
+                }}
+                className="flex flex-col overflow-hidden rounded-3xl border shadow-xl lg:col-span-7"
+              >
+                {/* High-Contrast Executive Browser Frame Header */}
+                <div
+                  style={{
+                    backgroundColor: '#0B132B',
+                    borderBottomColor: '#1E293B',
+                    color: '#FFFFFF',
+                  }}
+                  className="flex items-center justify-between border-b px-6 py-4 text-white"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="size-3 rounded-full"
+                      style={{ backgroundColor: '#FB7185' }}
+                    />
+                    <span
+                      className="size-3 rounded-full"
+                      style={{ backgroundColor: '#38BDF8' }}
+                    />
+                    <span
+                      className="size-3 rounded-full"
+                      style={{ backgroundColor: '#34D399' }}
+                    />
+                    <span
+                      dir="ltr"
+                      style={{
+                        backgroundColor: '#1E293B',
+                        borderColor: '#334155',
+                        color: '#BAE6FD',
+                      }}
+                      className="mr-2 rounded-lg border px-3 py-1 font-mono text-xs font-bold"
+                    >
+                      https://orxai.app/s/{presetKey}
+                    </span>
                   </div>
-                  <div
-                    style={{
-                      borderRadius: '8px',
-                      padding: '6px 10px',
-                      backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                      borderColor: 'rgba(148, 163, 184, 0.2)',
-                      color: '#E2E8F0',
-                    }}
-                    className="border"
+                  <span
+                    style={{ color: '#38BDF8' }}
+                    className="text-xs font-extrabold sm:text-sm"
                   >
-                    {currentBot.reply}
-                  </div>
+                    معاينة تفاعلية فورية
+                  </span>
                 </div>
 
-                <BotVisualAttachment pillarId={currentBot.id} />
+                {/* Animated Live Canvas */}
+                <div
+                  style={
+                    studioState.isDarkCanvas
+                      ? {
+                          background: 'linear-gradient(135deg, #070C1B 0%, #0F172A 60%, #1E293B 100%)',
+                          backgroundColor: '#0F172A',
+                          color: '#FFFFFF',
+                        }
+                      : styleMode === 'classic'
+                        ? {
+                            backgroundColor: '#E2E8F0',
+                            color: '#0F172A',
+                          }
+                        : {
+                            backgroundColor: '#F1F5F9',
+                            color: '#0F172A',
+                          }
+                  }
+                  className="relative flex flex-1 flex-col justify-between p-7 transition-colors duration-500 sm:p-10"
+                >
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={`${presetKey}-${styleMode}-${accentHex}`}
+                      initial={{ opacity: 0, y: 14, scale: 0.99 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -10, scale: 0.99 }}
+                      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                      className="space-y-6"
+                    >
+                      {/* High-Contrast Executive Hero Banner inside Preview */}
+                      <div
+                        style={{
+                          background: 'linear-gradient(135deg, #0B132B 0%, #0F172A 60%, #1E293B 100%)',
+                          backgroundColor: '#0B132B',
+                          borderColor: '#1E293B',
+                          color: '#FFFFFF',
+                        }}
+                        className="relative overflow-hidden rounded-2xl border p-6 text-white shadow-lg sm:p-7"
+                      >
+                        <div className="pointer-events-none absolute inset-0 opacity-75">
+                          <StudioHeroBannerArt
+                            presetId={activePreset.id}
+                            primaryHex={activeTheme.hex}
+                            secondaryHex={activeTheme.secondaryHex}
+                          />
+                        </div>
+
+                        <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
+                          <div>
+                            <span
+                              style={{ color: '#7DD3FC' }}
+                              className="text-xs font-extrabold tracking-wide uppercase sm:text-sm"
+                            >
+                              {activePreset.badge} · {activePreset.kpiLabel}{' '}
+                              <span
+                                style={{ color: '#34D399' }}
+                                className="font-mono"
+                              >
+                                {activePreset.kpiValue}
+                              </span>
+                            </span>
+                            <h3
+                              style={{ color: '#FFFFFF' }}
+                              className="mt-2 font-serif text-2xl font-extrabold sm:text-3xl"
+                            >
+                              {displayTitle}
+                            </h3>
+                            <p
+                              style={{ color: '#CBD5E1' }}
+                              className="mt-1.5 text-sm sm:text-base"
+                            >
+                              {activePreset.subtitle}
+                            </p>
+                          </div>
+
+                          <span
+                            style={{
+                              background: `linear-gradient(135deg, ${activeTheme.hex}, ${activeTheme.secondaryHex})`,
+                              backgroundColor: activeTheme.hex,
+                              color: '#FFFFFF',
+                            }}
+                            className="inline-flex h-12 items-center justify-center rounded-xl px-6 text-sm font-extrabold text-white shadow-md whitespace-nowrap shrink-0"
+                          >
+                            {activePreset.cta}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 3 Visual Items Grid/List */}
+                      <div
+                        className={
+                          styleMode === 'app'
+                            ? 'grid grid-cols-1 gap-3 sm:grid-cols-3'
+                            : 'space-y-3.5'
+                        }
+                      >
+                        {activePreset.items.map((item, idx) => (
+                          <div
+                            key={item.name}
+                            style={
+                              studioState.isDarkCanvas
+                                ? {
+                                    backgroundColor: '#111C35',
+                                    borderColor: '#1E293B',
+                                    color: '#FFFFFF',
+                                  }
+                                : {
+                                    backgroundColor: '#FFFFFF',
+                                    borderColor: '#CBD5E1',
+                                    color: '#0F172A',
+                                  }
+                            }
+                            className={`flex items-center justify-between gap-4 rounded-2xl border p-4 transition-all duration-300 sm:p-5 ${
+                              styleMode === 'app' ? 'flex-col items-start' : ''
+                            }`}
+                          >
+                            <div className="flex items-center gap-4 min-w-0">
+                              <span
+                                style={{
+                                  background: `linear-gradient(135deg, ${activeTheme.hex}, ${activeTheme.secondaryHex})`,
+                                  backgroundColor: activeTheme.hex,
+                                  color: '#FFFFFF',
+                                }}
+                                className="grid size-10 shrink-0 place-items-center rounded-xl font-mono text-sm font-extrabold text-white shadow-xs tabular-nums"
+                              >
+                                0{idx + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p
+                                    style={{
+                                      color: studioState.isDarkCanvas ? '#FFFFFF' : '#0F172A',
+                                    }}
+                                    className="truncate text-base font-extrabold sm:text-lg"
+                                  >
+                                    {item.name}
+                                  </p>
+                                  <span
+                                    style={{
+                                      color: studioState.isDarkCanvas ? '#7DD3FC' : '#1D4ED8',
+                                    }}
+                                    className="hidden text-xs font-bold sm:inline"
+                                  >
+                                    · {item.tag}
+                                  </span>
+                                </div>
+                                <p
+                                  style={{
+                                    color: studioState.isDarkCanvas ? '#94A3B8' : '#475569',
+                                  }}
+                                  className="mt-0.5 truncate text-xs sm:text-sm"
+                                >
+                                  {item.meta}
+                                </p>
+                              </div>
+                            </div>
+
+                            <span
+                              style={{
+                                color: studioState.isDarkCanvas ? '#38BDF8' : activeTheme.hex,
+                              }}
+                              className="shrink-0 font-mono text-base font-extrabold tabular-nums sm:text-lg"
+                            >
+                              {item.price}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
+
+                  {/* Preview Footer Bar */}
+                  <div
+                    style={{
+                      borderTopColor: studioState.isDarkCanvas ? '#1E293B' : '#CBD5E1',
+                      color: studioState.isDarkCanvas ? '#94A3B8' : '#475569',
+                    }}
+                    className="mt-8 flex items-center justify-between border-t pt-5 text-xs font-bold sm:text-sm"
+                  >
+                    <span>الطابع النشط: {STYLE_MODES.find((m) => m.id === styleMode)?.name}</span>
+                    <span>استجابة فورية على الجوال وسطح المكتب</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Sculpted Wave Divider from Studio (#EEF2F6) to Services (#FFFFFF) */}
+        <SectionCurveDivider fromColor="#EEF2F6" toColor="#FFFFFF" />
+
+        {/* =====================================================================
+            SECTION 3: CONSOLIDATED 2-GROUP SERVICES ARCHITECTURE (#services-suite)
+            ===================================================================== */}
+        <section
+          id="services-suite"
+          data-testid="services-suite"
+          style={{
+            backgroundColor: '#FFFFFF',
+            borderTopColor: '#E2E8F0',
+            color: '#0F172A',
+          }}
+          className="scroll-mt-20 border-t bg-white py-20 lg:py-24"
+        >
+          <div className="mx-auto max-w-[1380px] px-6 sm:px-10">
+            <div className="flex flex-col justify-between gap-6 border-b border-slate-200 pb-10 lg:flex-row lg:items-end" style={{ borderBottomColor: '#E2E8F0' }}>
+              <div>
+                <p style={{ color: '#1D4ED8' }} className="text-sm font-bold">
+                  03 / هيكلة الخدمات المجمّعة والقوالب المستقلة
+                </p>
+                <h2
+                  style={{ color: '#0F172A' }}
+                  className="mt-2 font-serif text-[clamp(1.85rem,3vw,2.65rem)] font-extrabold leading-[1.35]"
+                >
+                  قسمان رئيسيان منظمان · ولكل خدمة قالبها المخصص
+                </h2>
+              </div>
+              <p
+                style={{ color: '#475569' }}
+                className="max-w-lg text-sm font-medium leading-relaxed sm:text-base"
+              >
+                بدلاً من تشتيتك بعشرات البطاقات المتشابهة، جمّعنا خدمات المواقع في قسم موحّد،
+                والأدوات التفاعلية (الاستبيان، الحجز، الدعوات، الباقات) في قسم مستقل بقوالب مخصصة لكل أداة.
+              </p>
+            </div>
+
+            {/* 2 Consolidated Master Group Cards Side-by-Side */}
+            <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-2">
+              {SERVICE_GROUPS.map((group) => {
+                const activeSubId = selectedSubByGroup[group.id] || group.items[0].id;
+                const activeSub =
+                  group.items.find((it) => it.id === activeSubId) || group.items[0];
+                const ActiveIcon = SERVICE_ICONS[activeSub.visualKind] || Globe;
+
+                return (
+                  <div
+                    key={group.id}
+                    data-testid={`group-card-${group.id}`}
+                    style={{
+                      backgroundColor: '#F8FAFC',
+                      borderColor: '#CBD5E1',
+                      color: '#0F172A',
+                    }}
+                    className="flex flex-col justify-between rounded-3xl border p-6 shadow-md sm:p-8"
+                  >
+                    <div>
+                      {/* Group Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-5" style={{ borderBottomColor: '#E2E8F0' }}>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              style={{
+                                backgroundColor: '#0B132B',
+                                color: '#38BDF8',
+                              }}
+                              className="rounded-lg px-2.5 py-1 font-mono text-xs font-extrabold tabular-nums"
+                            >
+                              {group.badge}
+                            </span>
+                            <span
+                              style={{
+                                backgroundColor: '#EFF6FF',
+                                borderColor: '#BFDBFE',
+                                color: '#1D4ED8',
+                              }}
+                              className="rounded-lg border px-2.5 py-1 text-xs font-extrabold"
+                            >
+                              {group.items.length} قوالب مستقلة
+                            </span>
+                          </div>
+                          <h3
+                            style={{ color: '#0F172A' }}
+                            className="mt-3 font-serif text-xl font-extrabold sm:text-2xl"
+                          >
+                            {group.title}
+                          </h3>
+                          <p
+                            style={{ color: '#475569' }}
+                            className="mt-1 text-xs font-medium sm:text-sm"
+                          >
+                            {group.subtitle}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Sub-Service Switcher Tabs inside Group */}
+                      <div className="mt-5">
+                        <span
+                          style={{ color: '#475569' }}
+                          className="mb-2.5 block text-xs font-extrabold"
+                        >
+                          اختر الخدمة لمعاينة قالبها المخصص:
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {group.items.map((item) => {
+                            const SubIcon = SERVICE_ICONS[item.visualKind] || Globe;
+                            const isSelected = activeSub.id === item.id;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedSubByGroup((prev) => ({
+                                    ...prev,
+                                    [group.id]: item.id,
+                                  }))
+                                }
+                                data-testid={`button-subservice-${item.id}`}
+                                style={
+                                  isSelected
+                                    ? {
+                                        backgroundColor: '#0B132B',
+                                        borderColor: '#0B132B',
+                                        color: '#FFFFFF',
+                                      }
+                                    : {
+                                        backgroundColor: '#FFFFFF',
+                                        borderColor: '#CBD5E1',
+                                        color: '#0F172A',
+                                      }
+                                }
+                                className="inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-extrabold transition-all hover:border-blue-500 sm:text-sm"
+                              >
+                                <SubIcon
+                                  size={15}
+                                  style={{ color: isSelected ? '#38BDF8' : item.accentFrom }}
+                                />
+                                <span>{item.shortLabel}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Active Sub-Service Dedicated Template Preview */}
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={activeSub.id}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -6 }}
+                          transition={{ duration: 0.22 }}
+                          style={{
+                            backgroundColor: '#FFFFFF',
+                            borderColor: '#CBD5E1',
+                            color: '#0F172A',
+                          }}
+                          className="mt-5 overflow-hidden rounded-2xl border p-5 shadow-xs"
+                          data-testid={`card-service-${activeSub.id}`}
+                        >
+                          <ServiceCardVisual
+                            kind={activeSub.visualKind}
+                            accentFrom={activeSub.accentFrom}
+                            accentTo={activeSub.accentTo}
+                          />
+
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                            <span
+                              style={{
+                                backgroundColor: '#EFF6FF',
+                                borderColor: '#BFDBFE',
+                                color: '#1D4ED8',
+                              }}
+                              className="rounded-lg border px-3 py-1 text-xs font-extrabold"
+                            >
+                              {activeSub.templateBadge}
+                            </span>
+
+                            <span
+                              style={{
+                                background: `linear-gradient(135deg, ${activeSub.accentFrom}, ${activeSub.accentTo})`,
+                                backgroundColor: activeSub.accentFrom,
+                                color: '#FFFFFF',
+                              }}
+                              className="grid size-9 place-items-center rounded-xl text-white shadow-xs"
+                            >
+                              <ActiveIcon size={18} style={{ color: '#FFFFFF' }} />
+                            </span>
+                          </div>
+
+                          <h4
+                            style={{ color: '#0F172A' }}
+                            className="mt-3 text-lg font-extrabold sm:text-xl"
+                          >
+                            {activeSub.title}
+                          </h4>
+                          <p
+                            style={{ color: '#475569' }}
+                            className="mt-1.5 text-xs font-medium leading-relaxed sm:text-sm"
+                          >
+                            {activeSub.summary}
+                          </p>
+
+                          {/* 3 Concise Feature Points */}
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {activeSub.features.map((feat) => (
+                              <span
+                                key={feat}
+                                style={{
+                                  backgroundColor: '#F8FAFC',
+                                  borderColor: '#E2E8F0',
+                                  color: '#334155',
+                                }}
+                                className="rounded-lg border px-2.5 py-1 text-xs font-bold"
+                              >
+                                ✓ {feat}
+                              </span>
+                            ))}
+                          </div>
+                        </motion.div>
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Direct Action Footer */}
+                    <div className="mt-5 flex items-center justify-between gap-4 pt-2">
+                      <span
+                        style={{ color: '#64748B' }}
+                        className="font-mono text-xs font-bold"
+                      >
+                        القالب: {activeSub.templateId.toUpperCase()}
+                      </span>
+                      <Link
+                        href={`/dashboard?create=1&template=${activeSub.templateId}`}
+                        style={{
+                          backgroundColor: '#1D4ED8',
+                          color: '#FFFFFF',
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-xs font-extrabold text-white shadow-sm transition-colors hover:bg-[#1E40AF] sm:text-sm"
+                      >
+                        <span>تفعيل {activeSub.shortLabel}</span>
+                        <ArrowLeft size={16} />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* Sculpted Wave Divider from Services (#FFFFFF) to WhatsApp Assistant (#070C1B) */}
+        <SectionCurveDivider fromColor="#FFFFFF" toColor="#070C1B" flip />
+
+        {/* =====================================================================
+            SECTION 4: WHATSAPP EXECUTIVE COMPANION (#whatsapp-assistant)
+            ===================================================================== */}
+        <section
+          id="whatsapp-assistant"
+          data-testid="whatsapp-assistant-section"
+          style={{
+            backgroundColor: '#070C1B',
+            color: '#FFFFFF',
+          }}
+          className="relative scroll-mt-20 overflow-hidden bg-[#070C1B] py-20 text-white lg:py-28"
+        >
+          <HeroOrbitalBackdrop />
+
+          <div className="relative mx-auto max-w-[1380px] px-6 sm:px-10">
+            <div
+              style={{ borderBottomColor: '#1E293B' }}
+              className="flex flex-col justify-between gap-6 border-b pb-12 lg:flex-row lg:items-end"
+            >
+              <div>
+                <p style={{ color: '#38BDF8' }} className="text-sm font-bold">
+                  04 / المساعد التنفيذي الموثق عبر واتساب
+                </p>
+                <h2
+                  style={{ color: '#FFFFFF' }}
+                  className="mt-3 font-serif text-[clamp(1.9rem,3.2vw,2.85rem)] font-extrabold leading-[1.35]"
+                >
+                  ثلاث مهام محددة لخدمتك بسرعة وأمان
+                </h2>
+              </div>
+              <p
+                style={{ color: '#CBD5E1' }}
+                className="max-w-md text-base leading-relaxed sm:text-lg"
+              >
+                البناء الكامل يتم داخل المنصة، بينما يتولى بوت واتساب التحقق الأمني
+                والتعديلات النصية وتقارير الزوار.
+              </p>
+            </div>
+
+            <div className="mt-12 grid grid-cols-1 items-stretch gap-10 lg:grid-cols-12">
+              {/* Right Column: 3 Interactive Capability Pillars (6 Columns) */}
+              <div className="flex flex-col justify-between gap-4 lg:col-span-6">
+                {BOT_PILLARS.map((pillar) => {
+                  const active = activeBotId === pillar.id;
+                  return (
+                    <button
+                      key={pillar.id}
+                      type="button"
+                      onClick={() => setActiveBotId(pillar.id)}
+                      style={
+                        active
+                          ? {
+                              background:
+                                'linear-gradient(135deg, #172554 0%, #0F172A 100%)',
+                              backgroundColor: '#172554',
+                              borderColor: '#38BDF8',
+                              color: '#FFFFFF',
+                            }
+                          : {
+                              backgroundColor: '#0B132B',
+                              borderColor: '#1E293B',
+                              color: '#FFFFFF',
+                            }
+                      }
+                      className="group relative w-full overflow-hidden rounded-3xl border p-6 text-right transition-all duration-300 sm:p-7"
+                      data-testid={`button-bot-scenario-${pillar.id}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span
+                          style={{ color: '#38BDF8' }}
+                          className="font-mono text-sm font-extrabold tabular-nums"
+                        >
+                          {pillar.index} / 03
+                        </span>
+                        <span
+                          style={{ color: '#34D399' }}
+                          className="text-xs font-bold"
+                        >
+                          {pillar.badge}
+                        </span>
+                      </div>
+                      <h3
+                        style={{ color: '#FFFFFF' }}
+                        className="mt-2.5 font-serif text-xl font-extrabold sm:text-2xl"
+                      >
+                        {pillar.title}
+                      </h3>
+                      <p
+                        style={{ color: '#CBD5E1' }}
+                        className="mt-2 text-sm leading-relaxed sm:text-base"
+                      >
+                        {pillar.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Left Column: Sculpted Executive Smartphone Mockup (6 Columns) */}
+              <div className="flex items-center justify-center lg:col-span-6">
+                <div
+                  style={{
+                    background: 'linear-gradient(180deg, #1E293B 0%, #0F172A 100%)',
+                    backgroundColor: '#0F172A',
+                    borderColor: '#334155',
+                  }}
+                  className="w-full max-w-xl rounded-[2.25rem] border p-3 shadow-2xl"
+                >
+                  <div
+                    style={{
+                      backgroundColor: '#0B1222',
+                      borderColor: '#1E293B',
+                      color: '#FFFFFF',
+                    }}
+                    className="flex h-full flex-col justify-between rounded-[1.85rem] border p-6 sm:p-8"
+                  >
+                    {/* Smartphone Top Header */}
+                    <div
+                      style={{ borderBottomColor: '#1E293B' }}
+                      className="flex items-center justify-between border-b pb-4"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          style={{
+                            background: 'linear-gradient(135deg, #10B981, #0D9488)',
+                            backgroundColor: '#10B981',
+                            color: '#FFFFFF',
+                          }}
+                          className="grid size-11 place-items-center rounded-2xl text-white shadow-md"
+                        >
+                          <MessageCircle size={22} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              style={{ color: '#FFFFFF' }}
+                              className="font-serif text-base font-extrabold sm:text-lg"
+                            >
+                              مساعد ORxai الموثق
+                            </span>
+                            <ShieldCheck size={17} style={{ color: '#34D399' }} />
+                          </div>
+                          <p style={{ color: '#94A3B8' }} className="text-xs">
+                            قناة رسمية مشفرة ومرتبطة بحسابك
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        style={{ color: '#38BDF8' }}
+                        className="font-mono text-xs font-extrabold tabular-nums"
+                      >
+                        {activeBot.index} / 03
+                      </span>
+                    </div>
+
+                    {/* Animated Chat Messages */}
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={activeBot.id}
+                        initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                        className="my-6 space-y-4"
+                      >
+                        {/* Outgoing User Command Bubble */}
+                        <div
+                          style={{
+                            backgroundColor: '#172554',
+                            borderColor: 'rgba(59, 130, 246, 0.4)',
+                            color: '#FFFFFF',
+                          }}
+                          className="mr-auto max-w-[88%] rounded-2xl rounded-tl-sm border p-4 text-right"
+                        >
+                          <span
+                            style={{ color: '#7DD3FC' }}
+                            className="block text-[11px] font-bold"
+                          >
+                            الأمر المرسل للبوت:
+                          </span>
+                          <p
+                            style={{ color: '#FFFFFF' }}
+                            className="mt-1 font-mono text-base font-extrabold sm:text-lg"
+                          >
+                            {activeBot.command}
+                          </p>
+                        </div>
+
+                        {/* Incoming Bot Verified Response Bubble + Visual Card */}
+                        <div
+                          style={{
+                            backgroundColor: '#111C35',
+                            borderColor: '#1E293B',
+                            color: '#FFFFFF',
+                          }}
+                          className="ml-auto max-w-[92%] rounded-2xl rounded-tr-sm border p-5 text-right"
+                        >
+                          <span
+                            style={{ color: '#38BDF8' }}
+                            className="block text-[11px] font-bold"
+                          >
+                            استجابة المنظومة الفورية:
+                          </span>
+                          <p
+                            style={{ color: '#F1F5F9' }}
+                            className="mt-1.5 text-sm leading-relaxed font-semibold sm:text-base"
+                          >
+                            {activeBot.reply}
+                          </p>
+
+                          {/* Dynamic Visual Shape Attachment per Bot Pillar */}
+                          <BotVisualAttachment pillarId={activeBot.id} />
+                        </div>
+                      </motion.div>
+                    </AnimatePresence>
+
+                    {/* Smartphone Bottom Status Strip */}
+                    <div
+                      style={{
+                        borderTopColor: '#1E293B',
+                        color: '#94A3B8',
+                      }}
+                      className="flex items-center justify-between border-t pt-4 text-xs font-bold"
+                    >
+                      <span>{activeBot.highlightLabel}</span>
+                      <span style={{ color: '#34D399' }}>{activeBot.highlightValue}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Sculpted Wave Divider from WhatsApp Assistant (#070C1B) to FAQ (#EEF2F6) */}
+        <SectionCurveDivider fromColor="#070C1B" toColor="#EEF2F6" />
+
+        {/* =====================================================================
+            SECTION 5: FAQ & ROYAL CONVERSION BANNER (#faq)
+            ===================================================================== */}
+        <section
+          id="faq"
+          style={{ backgroundColor: '#EEF2F6', color: '#0F172A' }}
+          className="scroll-mt-20 bg-[#EEF2F6] py-20 lg:py-28"
+        >
+          <div className="mx-auto max-w-[1380px] px-6 sm:px-10">
+            <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <p style={{ color: '#1D4ED8' }} className="text-sm font-bold">
+                  05 / الأسئلة الشائعة
+                </p>
+                <h2
+                  style={{ color: '#0F172A' }}
+                  className="mt-3 font-serif text-[clamp(1.9rem,3vw,2.65rem)] font-extrabold leading-[1.35]"
+                >
+                  إجابات واضحة ومختصرة
+                </h2>
+                <p
+                  style={{ color: '#475569' }}
+                  className="mt-4 text-base leading-relaxed sm:text-lg"
+                >
+                  كل ما تحتاج معرفته حول آلية العمل المتكاملة بين استوديو المنصة ومساعد
+                  واتساب الموثق.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderColor: '#CBD5E1',
+                  color: '#0F172A',
+                }}
+                className="divide-y divide-slate-200 overflow-hidden rounded-3xl border shadow-xl lg:col-span-7"
+              >
+                {FAQ_LIST.map((item, idx) => {
+                  const isOpen = openFaq === idx;
+                  return (
+                    <div
+                      key={item.q}
+                      style={{
+                        backgroundColor: isOpen ? '#F8FAFC' : '#FFFFFF',
+                        borderColor: '#E2E8F0',
+                      }}
+                      className="p-6 transition-colors duration-200 sm:p-8"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setOpenFaq(isOpen ? null : idx)}
+                        aria-expanded={isOpen}
+                        style={{ color: '#0F172A' }}
+                        className="flex w-full items-center justify-between gap-4 text-right font-serif text-lg font-extrabold transition-colors hover:text-blue-600 sm:text-xl"
+                      >
+                        <span style={{ color: '#0F172A' }}>{item.q}</span>
+                        <ChevronDown
+                          size={22}
+                          style={{ color: '#2563EB' }}
+                          className={`shrink-0 transition-transform duration-300 ${
+                            isOpen ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+                      <AnimatePresence initial={false}>
+                        {isOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.25 }}
+                            className="overflow-hidden"
+                          >
+                            <p
+                              style={{ color: '#334155' }}
+                              className="pt-4 text-base leading-relaxed sm:text-lg"
+                            >
+                              {item.a}
+                            </p>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Compact FAQ Column (5 cols) */}
+            {/* Final Royal Conversion Banner */}
             <div
-              id="faq"
               style={{
-                backgroundImage:
-                  'linear-gradient(145deg, rgba(12, 25, 58, 0.86) 0%, rgba(6, 13, 32, 0.94) 100%)',
-                borderColor: 'rgba(56, 189, 248, 0.26)',
+                background: 'linear-gradient(135deg, #060B18 0%, #0B132B 55%, #1E3A8A 100%)',
+                backgroundColor: '#0B132B',
+                borderColor: '#1E40AF',
+                color: '#FFFFFF',
               }}
-              className="flex flex-col justify-between rounded-2xl sm:rounded-3xl border p-4 sm:p-6 lg:col-span-5"
+              className="relative mt-20 overflow-hidden rounded-3xl border p-10 text-white shadow-2xl sm:p-14 lg:p-16"
             >
-              <div>
-                <span
-                  style={{ color: '#38BDF8', fontSize: '11px' }}
-                  className="font-extrabold"
-                >
-                  معلومات سريعة
-                </span>
-                <h3
-                  style={{ color: '#FFFFFF', fontSize: '14px' }}
-                  className="mt-0.5 font-extrabold"
-                >
-                  الأسئلة الشائعة
-                </h3>
-
-                <div className="mt-3 space-y-2">
-                  {FAQ_ITEMS.map((item, idx) => {
-                    const isOpen = openFaq === idx;
-                    return (
-                      <div
-                        key={item.q}
-                        style={{
-                          backgroundColor: 'rgba(7, 14, 34, 0.82)',
-                          borderColor: isOpen
-                            ? 'rgba(56, 189, 248, 0.4)'
-                            : 'rgba(148, 163, 184, 0.16)',
-                        }}
-                        className="rounded-xl border transition"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setOpenFaq(isOpen ? null : idx)}
-                          style={{
-                            display: 'flex',
-                            width: '100%',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '8px',
-                            padding: '10px 14px',
-                            color: '#FFFFFF',
-                            fontSize: '12px',
-                          }}
-                          className="text-right font-extrabold"
-                        >
-                          <span>{item.q}</span>
-                          <ChevronDown
-                            size={14}
-                            className={`shrink-0 text-sky-400 transition-transform ${
-                              isOpen ? 'rotate-180' : ''
-                            }`}
-                          />
-                        </button>
-                        {isOpen && (
-                          <p
-                            style={{ color: '#94A3B8', fontSize: '11px' }}
-                            className="border-t border-slate-800/80 px-3.5 py-2.5 leading-relaxed"
-                          >
-                            {item.a}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
+              <HeroOrbitalBackdrop />
+              <div className="relative flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center">
+                <div className="max-w-2xl">
+                  <p
+                    style={{ color: '#38BDF8' }}
+                    className="text-sm font-bold tracking-wider"
+                  >
+                    ORXAI CLOUD ENTERPRISE
+                  </p>
+                  <h2
+                    style={{ color: '#FFFFFF' }}
+                    className="mt-3 font-serif text-2xl font-extrabold leading-[1.35] sm:text-4xl"
+                  >
+                    ابدأ تأسيس حضورك الرقمي بمعايير الشركات الكبرى
+                  </h2>
                 </div>
-              </div>
 
-              {/* Bottom Quick Action inside FAQ card */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '8px',
-                  borderRadius: '12px',
-                  padding: '10px 14px',
-                  marginTop: '16px',
-                }}
-                className="border border-sky-500/25 bg-sky-950/30"
-              >
-                <span style={{ color: '#E2E8F0', fontSize: '11px' }} className="font-bold">
-                  جاهز لتدشين منصتك الرقمية؟
-                </span>
                 <Link
-                  href={primaryDestination}
-                  data-testid="link-footer-cta"
+                  href={isSignedIn ? '/dashboard' : '/login'}
                   style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    borderRadius: '9999px',
-                    padding: '5px 12px',
-                    backgroundImage: 'linear-gradient(90deg, #1D4ED8 0%, #0EA5E9 100%)',
+                    background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                    backgroundColor: '#2563EB',
+                    borderColor: 'rgba(147, 197, 253, 0.35)',
                     color: '#FFFFFF',
-                    fontSize: '11px',
                   }}
-                  className="font-extrabold shadow whitespace-nowrap"
+                  className="inline-flex h-14 items-center justify-center gap-3 rounded-2xl border px-9 text-base font-extrabold text-white shadow-xl whitespace-nowrap shrink-0 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl"
+                  data-testid="link-footer-cta"
                 >
-                  <span>ابدأ مجاناً</span>
-                  <ArrowLeft size={12} />
+                  <span style={{ color: '#FFFFFF' }}>
+                    {isSignedIn ? 'فتح لوحة التحكم' : 'وثّق رقمك وابدأ الآن'}
+                  </span>
+                  <ArrowLeft size={18} style={{ color: '#BAE6FD' }} />
                 </Link>
               </div>
             </div>
-          </section>
-        </div>
-
-        {/* Minimal Dark Footer */}
-        <footer className="mx-auto mt-10 sm:mt-14 max-w-6xl border-t border-slate-800/80 px-3.5 pt-6 sm:px-8">
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '12px',
-              fontSize: '11px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <OrxaiMark inverted className="size-5" />
-              <span style={{ color: '#FFFFFF' }} className="font-mono font-extrabold">
-                ORxai
-              </span>
-              <span style={{ color: '#64748B' }}>
-                — منظومتك الرقمية المتكاملة للمواقع والأدوات التفاعلية
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: '#94A3B8' }}>
-              <Link href="/login" className="hover:text-white">
-                دخول المنصة
-              </Link>
-              <Link href="/dashboard" className="hover:text-white">
-                لوحة التحكم
-              </Link>
-              <a href="#services-suite" className="hover:text-white">
-                القوالب
-              </a>
-            </div>
           </div>
-        </footer>
-      </div>
+        </section>
+      </main>
+
+      {/* =====================================================================
+          EXECUTIVE FOOTER
+          ===================================================================== */}
+      <footer
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderTopColor: '#E2E8F0',
+          color: '#475569',
+        }}
+        className="border-t bg-white py-12 text-sm"
+      >
+        <div className="mx-auto flex max-w-[1380px] flex-col items-start justify-between gap-6 px-6 sm:flex-row sm:items-center sm:px-10">
+          <div className="flex items-center gap-4">
+            <Brand href="/" />
+            <span style={{ color: '#CBD5E1' }}>|</span>
+            <span style={{ color: '#475569' }} className="font-semibold">
+              المنظومة السحابية لبناء المواقع والخدمات الرقمية
+            </span>
+          </div>
+
+          <div
+            style={{ color: '#1E293B' }}
+            className="flex flex-wrap items-center gap-8 font-bold"
+          >
+            <a
+              href="#interactive-studio"
+              style={{ color: '#1E293B' }}
+              className="transition-colors hover:text-blue-600"
+            >
+              استوديو المنصة
+            </a>
+            <a
+              href="#services-suite"
+              style={{ color: '#1E293B' }}
+              className="transition-colors hover:text-blue-600"
+            >
+              الخدمات الـ 12
+            </a>
+            <a
+              href="#whatsapp-assistant"
+              style={{ color: '#1E293B' }}
+              className="transition-colors hover:text-blue-600"
+            >
+              المساعد الذكي
+            </a>
+            <Link
+              href="/login"
+              style={{ color: '#1E293B' }}
+              className="transition-colors hover:text-blue-600"
+            >
+              تسجيل الدخول
+            </Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -52,6 +52,7 @@ import {
   useUpdateUserQuota,
 } from '@workspace/api-client-react';
 import { Brand } from '@/components/brand';
+import { safeSessionStorage as sessionStorage } from '@/lib/safe-storage';
 import { BrandSplash, useEntrySplash } from '@/components/brand-splash';
 
 type Section = 'overview' | 'users' | 'websites' | 'keys' | 'settings';
@@ -126,7 +127,7 @@ function Login() {
       dir="rtl"
       className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[#060B18] px-5 py-10 font-sans text-white"
       style={{
-        backgroundImage: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
+        background: 'linear-gradient(155deg, #060B18 0%, #0B132B 55%, #111E42 100%)',
         backgroundColor: '#060B18',
         color: '#FFFFFF',
       }}
@@ -401,7 +402,7 @@ function Overview({
         <section
           className="rounded-2xl border border-[#1E293B] bg-[#0B132B] p-6 text-white"
           style={{
-            backgroundImage: 'linear-gradient(155deg, #060B18 0%, #0B132B 100%)',
+            background: 'linear-gradient(155deg, #060B18 0%, #0B132B 100%)',
             backgroundColor: '#0B132B',
             borderColor: '#1E293B',
             color: '#FFFFFF',
@@ -542,8 +543,16 @@ function UserMessagesDrawer({
             queryKey: getGetAdminUserMessagesQueryKey(userId, { before: undefined }),
           });
         },
-        onError: () =>
-          setSendError('تعذّر إرسال الرسالة. تأكد من إعداد واتساب وحاول مرة أخرى.'),
+        onError: (error) => {
+          // The Worker now explains the real reason (expired token, wrong phone
+          // number id, 24h window, test-number allow-list...).
+          const reason = (error as { data?: { error?: unknown } } | null)?.data?.error;
+          setSendError(
+            typeof reason === 'string' && reason
+              ? reason
+              : 'تعذّر إرسال الرسالة. تأكد من إعداد واتساب وحاول مرة أخرى.'
+          );
+        },
       }
     );
   };
@@ -1346,7 +1355,7 @@ export default function Admin() {
           mobileNav ? 'translate-x-0' : 'translate-x-full'
         }`}
         style={{
-          backgroundImage: 'linear-gradient(180deg, #060B18 0%, #0B132B 100%)',
+          background: 'linear-gradient(180deg, #060B18 0%, #0B132B 100%)',
           backgroundColor: '#0B132B',
           borderColor: '#1E293B',
           color: '#FFFFFF',

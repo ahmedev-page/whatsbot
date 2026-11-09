@@ -1,13 +1,17 @@
 import { clearUserSessionCookie, createSessionToken, createUserSessionToken, encryptSecret, getUserIdFromRequest, isAdminRequest, sessionCookie, userSessionCookie } from "./crypto";
-import { getMetaPhoneNumber, sendTextMessage, sendTypingIndicator, verifyMetaSignature } from "./meta";
+import { explainMetaError, getMetaPhoneNumber, metaErrorFrom, sendTextMessage, sendTypingIndicator, verifyMetaSignature } from "./meta";
+import { askGemini } from "./gemini";
+import { buildDashboardPrompt, normalizeAiResult, sanitizeDraftContext, sanitizeHistory } from "./dashboard-ai";
 import { processIncomingMessage } from "./message-handler";
 import {
   addConversationMessage,
   addTrustedDeviceForUser,
   consumeLoginChallenge,
+  consumeMessageQuota,
   createLoginChallenge,
   createWebsite,
   deleteWebsite,
+  getActiveApiKeys,
   getConversationMessagesPage,
   getLatestWebsite,
   getLoginChallengeById,
@@ -398,11 +402,12 @@ async function handleAdmin(request: Request, env: Env, pathname: string): Promis
       { headers: { Authorization: `Bearer ${env.META_WHATSAPP_TOKEN}` } },
     );
     if (!response.ok) {
+      const failure = await metaErrorFrom(response);
       return json({
         connected: false,
         phoneNumberId,
         displayName: null,
-        message: "تعذر الاتصال بـ Meta Cloud API.",
+        message: explainMetaError(failure),
       });
     }
     const data = (await response.json()) as { display_phone_number?: string; verified_name?: string };
@@ -473,7 +478,7 @@ async function handleAdmin(request: Request, env: Env, pathname: string): Promis
       await sendTextMessage(env, user.phone_number, message);
     } catch (error) {
       console.error("Admin send-message failed", error);
-      return json({ error: "Failed to deliver the message via WhatsApp" }, 502);
+      return json({ error: explainMetaError(error) }, 502);
     }
     // Telemetry only — the message already sent, so a history-write hiccup
     // shouldn't turn a successful send into an error response.
@@ -654,6 +659,25 @@ async function tooManyHits(env: Env, key: string, max: number, windowSeconds: nu
   if (env.MANFAZ_RATE_LIMIT) await env.MANFAZ_RATE_LIMIT.put(key, JSON.stringify(record), { expirationTtl: windowSeconds });
   else memoryHits.set(key, record);
   return record.count > max;
+}
+
+// The admin Settings page stores `meta_phone_number_id`, and the status check
+// accepts it — but every send helper reads env.META_PHONE_NUMBER_ID only. When
+// the id was entered in Settings instead of as a Worker secret, status said
+// "connected" while each send went to /undefined/messages. Fill the gap once
+// per request (cached for a minute) so both paths agree.
+let metaIdCache: { value: string; at: number } | null = null;
+async function withMetaDefaults(env: Env): Promise<Env> {
+  if (env.META_PHONE_NUMBER_ID) return env;
+  if (!metaIdCache || Date.now() - metaIdCache.at > 60_000) {
+    try {
+      metaIdCache = { value: (await getSettings(env)).meta_phone_number_id || "", at: Date.now() };
+    } catch (error) {
+      console.error("Unable to read meta_phone_number_id from settings", error);
+      metaIdCache = { value: "", at: Date.now() };
+    }
+  }
+  return metaIdCache.value ? { ...env, META_PHONE_NUMBER_ID: metaIdCache.value } : env;
 }
 
 // Same precedence as /api/public/settings/whatsapp: the admin-configured
@@ -1058,6 +1082,48 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     );
   }
 
+  // Gemini-powered assistant for the dashboard card. Uses the same admin-managed
+  // API keys and the same message quota as the WhatsApp bot. It never writes:
+  // it returns validated edit operations that the browser applies to the draft.
+  if (pathname === "/api/me/assistant/ai" && request.method === "POST") {
+    if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
+    const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
+    if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    const user = await getUserById(env, userId);
+    if (!user) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    if (user.blocked) return json({ error: "Account is blocked", code: "blocked" }, 403);
+    const body = await readJson(request);
+    const message = typeof body.message === "string" ? cleanString(body.message).trim() : "";
+    if (!message || message.length > 1000) return json({ error: "Invalid message" }, 400);
+    if (await tooManyHits(env, `dash-ai:${user.id}`, 12, 60)) {
+      return json({ error: "رسائل كثيرة خلال وقت قصير. انتظر لحظات ثم أعد المحاولة.", code: "rate" }, 429);
+    }
+    // Check keys before charging so a missing key never costs the user a message.
+    if (!(await getActiveApiKeys(env)).length) {
+      return json({ error: "المساعد الذكي غير متاح حالياً. يمكنك التعديل بالنقر مباشرة على البطاقة.", code: "ai_unavailable" }, 503);
+    }
+    const quotaUser = await consumeMessageQuota(env, user.id);
+    if (!quotaUser) {
+      return json({ error: "انتهت رسائلك المجانية. تواصل مع الإدارة لتوسيع حصتك.", code: "quota" }, 402, { "cache-control": "no-store" });
+    }
+    try {
+      const raw = (await askGemini(
+        env,
+        buildDashboardPrompt({ message, draft: sanitizeDraftContext(body.draft), history: sanitizeHistory(body.history) }),
+        true,
+      )) as Record<string, unknown>;
+      const result = normalizeAiResult(raw);
+      return json(
+        { ...result, freeMessagesUsed: quotaUser.free_messages_used, freeMessagesLimit: quotaUser.free_messages_limit },
+        200,
+        { "cache-control": "no-store" },
+      );
+    } catch (error) {
+      console.error("Dashboard assistant failed", error);
+      return json({ error: "تعذّر تنفيذ الطلب بسبب ازدحام مؤقت. جرّب صياغة أبسط أو أعد المحاولة بعد قليل.", code: "ai_failed" }, 502, { "cache-control": "no-store" });
+    }
+  }
+
   // Real database-backed assistant command handler for the dashboard
   if (pathname === "/api/me/assistant" && request.method === "POST") {
     if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
@@ -1163,7 +1229,8 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
 }
 
 const worker = {
-  async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, rawEnv: Env, context: ExecutionContext): Promise<Response> {
+    const env = await withMetaDefaults(rawEnv);
     try {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }), env, request);
@@ -1182,7 +1249,8 @@ const worker = {
     }
   },
 
-  async queue(batch: MessageBatch<{ message: IncomingMessage }>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<{ message: IncomingMessage }>, rawEnv: Env): Promise<void> {
+    const env = await withMetaDefaults(rawEnv);
     for (const item of batch.messages) {
       try {
         await processIncomingMessage(env, item.body.message);

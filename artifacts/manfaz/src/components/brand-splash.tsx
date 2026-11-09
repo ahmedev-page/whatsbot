@@ -6,6 +6,9 @@ import { OrxaiMark } from '@/components/orxai-mark';
  * the whole overlay fades away to reveal the app underneath.
  */
 export function BrandSplash({ show }: { show: boolean }) {
+  // A hidden splash used to stay mounted at opacity 0 with an infinite blurred
+  // glow animation running forever behind the app. Not rendering it is free.
+  if (!show) return null;
   return (
     <div
       aria-hidden={!show}
@@ -19,13 +22,13 @@ export function BrandSplash({ show }: { show: boolean }) {
           aria-hidden
           className="absolute inset-0 -m-16 rounded-full blur-2xl [animation:orxai-glow-pulse_2.4s_ease-in-out_infinite]"
           style={{
-            backgroundImage: 'radial-gradient(circle at center, rgba(37, 99, 235, 0.28), transparent 70%)',
+            background: 'radial-gradient(circle at center, rgba(37, 99, 235, 0.28), transparent 70%)',
           }}
         />
         <div
           className="relative grid size-20 place-items-center rounded-2xl border border-[#1E3A8A]"
           style={{
-            backgroundImage: 'linear-gradient(135deg, #1D4ED8 0%, #0B132B 100%)',
+            background: 'linear-gradient(135deg, #1D4ED8 0%, #0B132B 100%)',
             borderColor: '#3B82F6',
           }}
         >

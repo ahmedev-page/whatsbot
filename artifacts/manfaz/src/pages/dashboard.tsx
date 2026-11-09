@@ -7,6 +7,7 @@ import { ServiceCard } from '@/components/studio/service-card';
 import {
   ApiError,
   accountQueryKey,
+  askDashboardAssistant,
   createWebsiteInPlatform,
   getActiveSiteUsername,
   getLocalAccount,
@@ -23,11 +24,12 @@ import {
 } from '@/lib/account';
 import {
   COLOR_PRESETS,
-  HELP_EXAMPLES,
   STYLE_NAMES,
   STYLE_ORDER,
   TEMPLATES,
   applyAction,
+  applyOps,
+  draftFromCreate,
   getItems,
   getTemplate,
   groupItems,
@@ -76,6 +78,7 @@ interface Session {
   history: Draft[];
   flash: number[];
   flashField?: string;
+  thinking?: boolean;
 }
 
 const NEW_KEY = 'new';
@@ -155,6 +158,19 @@ function Bubble({ msg, onPick, grid = false }: { msg: Msg; onPick: (c: Chip) => 
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function Typing() {
+  return (
+    <div className="flex justify-start" style={{ direction: 'rtl' }} role="status" aria-label="المساعد يكتب">
+      <div className="flex items-center gap-1.5 rounded-2xl px-4 py-3" style={{ backgroundColor: '#EAF0FD', border: '1px solid #D5E0F7', borderTopRightRadius: 6 }}>
+        <span className="text-xs font-bold" style={{ color: '#1D4ED8' }}>المساعد يفكّر</span>
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="studio-dot size-1.5 rounded-full" style={{ backgroundColor: '#2563EB', animationDelay: `${i * 160}ms` }} />
+        ))}
       </div>
     </div>
   );
@@ -251,29 +267,35 @@ export default function Dashboard() {
     setActiveKey(NEW_KEY);
   }, [typePickerMessages]);
 
+  // Puts a draft into the "new service" session. The previous draft (if any) goes
+  // onto the undo stack, so replacing a draft is never destructive.
+  const installDraft = useCallback((draft: Draft, intro: Msg[]) => {
+    setSessions((prev) => {
+      const old = prev[NEW_KEY];
+      return {
+        ...prev,
+        [NEW_KEY]: {
+          draft,
+          baseline: null,
+          version: '',
+          messages: intro,
+          history: old?.draft ? [...old.history, old.draft].slice(-30) : [],
+          flash: [],
+        },
+      };
+    });
+    setActiveKey(NEW_KEY);
+  }, []);
+
   const startDraft = useCallback(
     (templateId: string, siteName?: string) => {
-      const draft = newDraft(templateId, { siteName });
       const tpl = getTemplate(templateId);
-      setSessions((prev) => {
-        const old = prev[NEW_KEY];
-        return {
-          ...prev,
-          [NEW_KEY]: {
-            draft,
-            baseline: null,
-            version: '',
-            messages: [
-              msg('bot', `جهّزت لك «${tpl.label}» بمحتوى مبدئي. انقر على أي نص في البطاقة لتعديله، أو اكتب طلبك في الأسفل.`),
-            ],
-            history: old?.draft ? [...old.history, old.draft].slice(-30) : [],
-            flash: [],
-          },
-        };
-      });
-      setActiveKey(NEW_KEY);
+      installDraft(newDraft(templateId, { siteName }), [
+        msg('bot', `جهّزت لك «${tpl.label}» بمحتوى مبدئي. انقر على أي نص في البطاقة لتعديله، أو اكتب طلبك في الأسفل.`),
+        msg('bot', 'تريد محتوى جاهزاً لنشاطك؟ اكتب وصفاً مثل «مطعم شاورما اسمه الشام» وسيكتبه لك المساعد الذكي.'),
+      ]);
     },
-    [msg],
+    [installDraft, msg],
   );
 
   // First load: pick the service to show (or the create flow for new accounts).
@@ -359,8 +381,63 @@ export default function Dashboard() {
     [patch],
   );
 
+  // Free-form requests the local parser can't handle go to Gemini through the
+  // Worker (same admin-managed keys and message quota as WhatsApp). The model
+  // returns validated operations; we apply them to the draft like any other edit.
+  const askAi = useCallback(
+    async (key: string, text: string, current: Draft | null, onFail?: () => void) => {
+      patch(key, (s) => ({ ...s, thinking: true }));
+      const history = (sessionsRef.current[key]?.messages ?? [])
+        .slice(-7, -1)
+        .map((m) => ({ role: m.role, text: m.text }));
+      try {
+        const res = await askDashboardAssistant({
+          message: text,
+          draft: current ? { siteName: current.siteName, templateId: current.templateId, themeColor: current.themeColor, structure: current.structure } : null,
+          history,
+        });
+        void queryClient.invalidateQueries({ queryKey: accountQueryKey });
+        if (res.create) {
+          installDraft(draftFromCreate(res.create), [
+            msg('bot', res.reply || `جهّزت لك «${res.create.siteName}». راجع المحتوى وعدّل ما تريد بالنقر، ثم انشر.`),
+            msg('bot', 'يمكنك التعديل بالنقر على أي نص، أو اطلب مني: «أضف قسم حلويات» أو «غيّر اللون إلى أخضر».'),
+          ]);
+          return;
+        }
+        if (res.ops.length && current) {
+          const result = applyOps(current, res.ops);
+          if (result.changed) {
+            patch(key, (s) => ({
+              ...s,
+              history: s.draft ? [...s.history, s.draft].slice(-30) : s.history,
+              draft: result.draft,
+              flash: result.touched,
+              flashField: result.field,
+              messages: [...s.messages, msg('bot', res.reply || 'تم التعديل — راجعه في البطاقة.', [{ label: 'تراجع', action: { t: 'undo' } }])].slice(-40),
+            }));
+            window.setTimeout(() => patch(key, (s) => ({ ...s, flash: [], flashField: undefined })), 1900);
+            if (result.touched.length) {
+              window.requestAnimationFrame(() =>
+                document.getElementById(`studio-item-${result.touched[0]}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+              );
+            }
+            return;
+          }
+        }
+        push(key, msg('bot', res.reply || 'لم أفهم الطلب تماماً. جرّب صياغة أخرى، أو عدّل مباشرة بالنقر على البطاقة.'));
+      } catch (err) {
+        const note = err instanceof ApiError && err.message ? err.message : 'تعذّر الوصول إلى المساعد الذكي. حاول مرة أخرى.';
+        push(key, msg('bot', note));
+        onFail?.();
+      } finally {
+        patch(key, (s) => ({ ...s, thinking: false }));
+      }
+    },
+    [installDraft, msg, patch, push, queryClient],
+  );
+
   const runAction = useCallback(
-    (key: string, action: Action, current: Draft | null) => {
+    (key: string, action: Action, current: Draft | null, text = '') => {
       const requireDraft = (): Draft | null => {
         if (current) return current;
         push(key, msg('bot', 'ابدأ أولاً بإنشاء خدمة — اختر نوعها:', TYPE_CHIPS));
@@ -369,7 +446,12 @@ export default function Dashboard() {
 
       switch (action.kind) {
         case 'create': {
-          if (action.templateId) startDraft(action.templateId, action.siteName);
+          const detailed = !!action.siteName || text.trim().split(/\s+/).length >= 5;
+          if (action.templateId && detailed && text) {
+            // Rich request ("منيو لمطعم شاورما اسمه الشام"): let Gemini write real
+            // content; if it can't, fall back to the free local starter.
+            void askAi(key, text, current, () => startDraft(action.templateId as string, action.siteName));
+          } else if (action.templateId) startDraft(action.templateId, action.siteName);
           else {
             setSessions((prev) => ({ ...prev, [NEW_KEY]: prev[NEW_KEY]?.draft ? prev[NEW_KEY] : { ...emptySession(), messages: typePickerMessages('ما نوع الخدمة التي تريد إنشاءها؟') } }));
             setActiveKey(NEW_KEY);
@@ -402,7 +484,7 @@ export default function Dashboard() {
           );
           return;
         case 'unknown':
-          push(key, msg('bot', 'لم أفهم الطلب تماماً. جرّب مثلاً:', HELP_EXAMPLES.map((text) => ({ label: text, action: { t: 'send', text } as ChipAction }))));
+          void askAi(key, text, current);
           return;
         default: {
           const base = requireDraft();
@@ -429,17 +511,17 @@ export default function Dashboard() {
         }
       }
     },
-    [msg, patch, push, sites, startDraft, typePickerMessages, undo],
+    [askAi, msg, patch, push, sites, startDraft, typePickerMessages, undo],
   );
 
   const send = useCallback(
     (raw: string) => {
       const text = raw.trim();
-      if (!text || !activeKey) return;
+      if (!text || !activeKey || sessionsRef.current[activeKey]?.thinking) return;
       const current = sessionsRef.current[activeKey]?.draft ?? null;
       push(activeKey, msg('user', text));
       const sectionNames = current ? groupItems(getItems(current)).map((g) => g.name) : [];
-      runAction(activeKey, interpret(text, { sectionNames, hasSite: !!current }), current);
+      runAction(activeKey, interpret(text, { sectionNames, hasSite: !!current }), current, text);
     },
     [activeKey, msg, push, runAction],
   );
@@ -681,6 +763,12 @@ export default function Dashboard() {
                   <p dir="ltr" className="px-3 py-2 text-right font-mono text-xs font-bold" style={{ color: '#64748B' }}>
                     +{activeAccount.phoneNumber}
                   </p>
+                  <p className="px-3 pb-2 text-xs font-bold" style={{ color: '#0F172A' }}>
+                    رصيد المساعد الذكي:{' '}
+                    <span style={{ color: '#2563EB' }}>
+                      {Math.max(0, activeAccount.freeMessagesLimit - activeAccount.freeMessagesUsed)} رسالة
+                    </span>
+                  </p>
                   <Link href="/" className="block rounded-xl px-3 py-2 text-xs font-bold hover:bg-[#F1F5F9]">
                     الصفحة الرئيسية للمنصة
                   </Link>
@@ -732,7 +820,10 @@ export default function Dashboard() {
               <Loader2 className="animate-spin" size={24} style={{ color: '#2563EB' }} />
             </div>
           ) : !draft ? (
-            messages.map((m) => <Bubble key={m.id} msg={m} onPick={onChip} grid />)
+            <>
+              {messages.map((m) => <Bubble key={m.id} msg={m} onPick={onChip} grid />)}
+              {session.thinking && <Typing />}
+            </>
           ) : (
             <>
               {messages[0] && <Bubble msg={{ ...messages[0], chips: undefined }} onPick={onChip} />}
@@ -771,6 +862,11 @@ export default function Dashboard() {
               <Bubble msg={lastBot} onPick={onChip} />
             </div>
           )}
+          {session?.thinking && draft && (
+            <div className="px-4 pt-3">
+              <Typing />
+            </div>
+          )}
           {quickChips.length > 0 && (
             <ul className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-1 pt-3">
               {quickChips.map((c) => (
@@ -793,7 +889,7 @@ export default function Dashboard() {
             />
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() || !!session?.thinking}
               aria-label="إرسال"
               className="grid size-12 shrink-0 place-items-center rounded-2xl text-white disabled:opacity-40"
               style={{ backgroundColor: '#2563EB' }}
