@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "dev": "CI=true npm run dev --workspace=@workspace/manfaz",
+    "dev": "npm run dev --workspace=@workspace/manfaz",
     "build": "npm run build --workspace=@workspace/manfaz",
     "typecheck": "tsc --build",
     "lint": "tsc --build"

@@ -1,3 +1,4 @@
+import type { AnnouncementRow, AnnouncementFields } from "./announcements";
 import type {
   ApiKeyRow,
   ConversationMessageRow,
@@ -118,10 +119,36 @@ export async function listWebsitesForUser(env: Env, userId: string): Promise<Web
   );
 }
 
+// The service the person is currently working on: the remembered one when it
+// still exists, otherwise the most recently updated.
+export async function getActiveWebsite(env: Env, user: Pick<UserRow, "id" | "active_website_id">): Promise<WebsiteRow | null> {
+  const rows = await listWebsitesForUser(env, user.id);
+  return rows.find((w) => w.id === user.active_website_id) ?? rows[0] ?? null;
+}
+
+// Best-effort: before migration 018 the column does not exist. The bot then
+// simply re-resolves the service from each message instead of remembering it.
+export async function setActiveWebsite(env: Env, userId: string, websiteId: string | null): Promise<void> {
+  try {
+    await supabaseRequest(env, `users?id=eq.${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ active_website_id: websiteId }),
+    });
+  } catch (error) {
+    console.warn("Unable to remember the active service (is migration 018 applied?)", error);
+  }
+}
+
+// `strict` is for anything that changes or deletes data: when the caller named a
+// specific service and it does not exist (already deleted, stale link), the
+// answer is "not found" — never "the most recent service instead", which would
+// let a stale tab edit or delete a different service than the one on screen.
+// Reads keep the lenient fallback so older clients still land somewhere.
 export async function getWebsiteForUser(
   env: Env,
   userId: string,
   targetIdOrUsername?: string | null,
+  strict = false,
 ): Promise<WebsiteRow | null> {
   if (!targetIdOrUsername || !targetIdOrUsername.trim()) {
     return await getLatestWebsite(env, userId);
@@ -134,7 +161,8 @@ export async function getWebsiteForUser(
     env,
     `websites?user_id=eq.${encodeURIComponent(userId)}&${filter}&select=*&limit=1`,
   );
-  return rows[0] ?? (await getLatestWebsite(env, userId));
+  if (rows[0]) return rows[0];
+  return strict ? null : await getLatestWebsite(env, userId);
 }
 
 export async function getWebsiteByPublicId(
@@ -615,4 +643,88 @@ export async function getUnreadMessageCounts(env: Env): Promise<Map<string, numb
   const counts = new Map<string, number>();
   for (const row of rows) counts.set(row.user_id, (counts.get(row.user_id) ?? 0) + 1);
   return counts;
+}
+
+// ---------------------------------------------------------------------------
+// Announcements (admin-authored cards), publishing, plans, order notifications
+// ---------------------------------------------------------------------------
+
+export async function listAnnouncements(env: Env): Promise<AnnouncementRow[]> {
+  return await supabaseRequest<AnnouncementRow[]>(env, "announcements?select=*&order=sort_order.asc,created_at.desc");
+}
+
+export async function createAnnouncement(env: Env, fields: AnnouncementFields): Promise<AnnouncementRow> {
+  const rows = await supabaseRequest<AnnouncementRow[]>(env, "announcements", {
+    method: "POST",
+    body: JSON.stringify(fields),
+  });
+  if (!rows[0]) throw new Error("Announcement insert returned no row");
+  return rows[0];
+}
+
+export async function updateAnnouncement(env: Env, id: string, fields: AnnouncementFields): Promise<AnnouncementRow | null> {
+  const rows = await supabaseRequest<AnnouncementRow[]>(env, `announcements?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ ...fields, updated_at: new Date().toISOString() }),
+  });
+  return rows[0] ?? null;
+}
+
+export async function deleteAnnouncement(env: Env, id: string): Promise<boolean> {
+  const rows = await supabaseRequest<AnnouncementRow[]>(env, `announcements?id=eq.${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  return rows.length > 0;
+}
+
+export async function bumpAnnouncement(env: Env, id: string, kind: "view" | "click"): Promise<void> {
+  await supabaseRpc(env, "bump_announcement", { p_id: id, p_kind: kind });
+}
+
+// Does NOT touch updated_at: pausing/resuming must not make an open editor think
+// the service was edited elsewhere (updated_at is its concurrency token).
+export async function setWebsitePublished(env: Env, websiteId: string, published: boolean): Promise<WebsiteRow | null> {
+  const rows = await supabaseRequest<WebsiteRow[]>(env, `websites?id=eq.${encodeURIComponent(websiteId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_published: published }),
+  });
+  return rows[0] ?? null;
+}
+
+export async function updateUserPlan(env: Env, userId: string, plan: string): Promise<UserRow | null> {
+  const rows = await supabaseRequest<UserRow[]>(env, `users?id=eq.${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ plan }),
+  });
+  return rows[0] ?? null;
+}
+
+// Best effort before migration 019 (column missing => the bot just keeps notifying).
+export async function setNotifyOrders(env: Env, userId: string, on: boolean): Promise<boolean> {
+  try {
+    await supabaseRequest(env, `users?id=eq.${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ notify_orders: on }),
+    });
+    return true;
+  } catch (error) {
+    console.warn("Unable to save notify_orders (is migration 019 applied?)", error);
+    return false;
+  }
+}
+
+// Changes the status of one booking/order/response inside the service's data.
+export async function setSubmissionStatus(
+  env: Env,
+  website: WebsiteRow,
+  submissionId: string,
+  status: string,
+): Promise<boolean> {
+  const list = Array.isArray(website.json_structure?.submissions)
+    ? (website.json_structure.submissions as Array<Record<string, unknown>>)
+    : [];
+  if (!list.some((s) => s.id === submissionId)) return false;
+  const next = list.map((s) => (s.id === submissionId ? { ...s, status, statusChangedAt: new Date().toISOString() } : s));
+  await updateWebsite(env, website.id, { json_structure: { ...website.json_structure, submissions: next } });
+  return true;
 }

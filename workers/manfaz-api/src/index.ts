@@ -1,8 +1,18 @@
 import { clearUserSessionCookie, createSessionToken, createUserSessionToken, encryptSecret, getUserIdFromRequest, isAdminRequest, sessionCookie, userSessionCookie } from "./crypto";
 import { explainMetaError, getMetaPhoneNumber, metaErrorFrom, sendTextMessage, sendTypingIndicator, verifyMetaSignature } from "./meta";
 import { askGemini } from "./gemini";
+import { normalizeAnnouncement, selectForUser } from "./announcements";
+import {
+  checkCanCreate,
+  checkCanPublish,
+  listSubmissions,
+  resolveService,
+  submissionNouns,
+  toServiceRecord,
+  usageFor,
+} from "./service-registry";
 import { buildDashboardPrompt, normalizeAiResult, sanitizeDraftContext, sanitizeHistory } from "./dashboard-ai";
-import { processIncomingMessage } from "./message-handler";
+import { notifyOwnerOfSubmission, processIncomingMessage } from "./message-handler";
 import {
   addConversationMessage,
   addTrustedDeviceForUser,
@@ -10,8 +20,15 @@ import {
   consumeMessageQuota,
   createLoginChallenge,
   createWebsite,
+  bumpAnnouncement,
+  createAnnouncement,
+  deleteAnnouncement,
   deleteWebsite,
   getActiveApiKeys,
+  listAnnouncements,
+  setWebsitePublished,
+  updateAnnouncement,
+  updateUserPlan,
   getConversationMessagesPage,
   getLatestWebsite,
   getLoginChallengeById,
@@ -184,6 +201,7 @@ function publicUser(user: UserRow, websiteCount: number, unreadMessages = 0) {
     phoneNumber: user.phone_number,
     freeMessagesUsed: user.free_messages_used,
     freeMessagesLimit: user.free_messages_limit,
+    plan: user.plan || "free",
     websiteCount,
     blocked: user.blocked,
     unreadMessages,
@@ -230,6 +248,23 @@ function publicWebsite(website: WebsiteWithOwner) {
   };
 }
 
+// New booking/order/response → WhatsApp message to the owner with one-tap status
+// buttons. Throttled per service so a spammed form cannot spam the owner, and
+// raced against a short timeout so the visitor never waits on Meta.
+async function notifyOwnerSafely(env: Env, website: WebsiteRow, submission: Record<string, unknown>): Promise<void> {
+  try {
+    if (await tooManyHits(env, `notify:${website.id}`, 20, 60 * 60)) return;
+    const owner = await getUserById(env, website.user_id);
+    if (!owner || owner.blocked || owner.notify_orders === false) return;
+    await Promise.race([
+      notifyOwnerOfSubmission(env, owner, website, submission),
+      new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+    ]);
+  } catch (error) {
+    console.warn("Order notification failed", error);
+  }
+}
+
 async function handlePublic(request: Request, env: Env, pathname: string): Promise<Response> {
   if (pathname === "/api/public/settings/whatsapp" && request.method === "GET") {
     const settings = await getSettings(env);
@@ -248,6 +283,10 @@ async function handlePublic(request: Request, env: Env, pathname: string): Promi
     const website = await getWebsiteByPublicId(env, websiteMatch[1]);
     const noStore = { "cache-control": "no-store, must-revalidate" };
     if (!website) return json({ error: "Website not found" }, 404, noStore);
+    if (website.is_published === false) return json({ error: "Website not found", code: "unpublished" }, 404, noStore);
+    // `submissions` holds visitors' names, phone numbers and answers. It is
+    // owner-only data and must never be part of the public payload.
+    const { submissions: _private, ...publicStructure } = website.json_structure as Record<string, unknown>;
     return json(
       {
         id: website.id,
@@ -256,7 +295,7 @@ async function handlePublic(request: Request, env: Env, pathname: string): Promi
         siteName: website.site_name,
         templateId: website.template_id,
         themeColor: website.theme_color,
-        jsonStructure: website.json_structure,
+        jsonStructure: publicStructure,
         showBranding: website.show_branding,
         createdAt: website.created_at,
         updatedAt: website.updated_at,
@@ -269,7 +308,7 @@ async function handlePublic(request: Request, env: Env, pathname: string): Promi
   const visitMatch = pathname.match(/^\/api\/public\/websites\/([^/]+)\/visit$/);
   if (visitMatch && request.method === "POST") {
     const website = await getWebsiteByPublicId(env, visitMatch[1]);
-    if (!website) return json({ error: "Website not found" }, 404);
+    if (!website || website.is_published === false) return json({ error: "Website not found" }, 404);
     await recordVisit(env, website.id);
     return json({ recorded: true });
   }
@@ -277,7 +316,7 @@ async function handlePublic(request: Request, env: Env, pathname: string): Promi
   const submissionMatch = pathname.match(/^\/api\/public\/websites\/([^/]+)\/submissions$/);
   if (submissionMatch && request.method === "POST") {
     const website = await getWebsiteByPublicId(env, submissionMatch[1]);
-    if (!website) return json({ error: "Website not found" }, 404);
+    if (!website || website.is_published === false) return json({ error: "Website not found" }, 404);
     const body = await readJson(request);
     const type = typeof body.type === "string" ? cleanString(body.type).slice(0, 32) : "survey";
     const respondentName = typeof body.respondentName === "string"
@@ -339,6 +378,8 @@ async function handlePublic(request: Request, env: Env, pathname: string): Promi
         submissions: nextSubmissions,
       },
     });
+    // Tell the owner on WhatsApp (best effort: never fails the visitor's request).
+    await notifyOwnerSafely(env, website, submission as unknown as Record<string, unknown>);
     return json({ recorded: true, submission }, 201, { "cache-control": "no-store" });
   }
 
@@ -441,6 +482,48 @@ async function handleAdmin(request: Request, env: Env, pathname: string): Promis
       `websites?user_id=eq.${encodeURIComponent(blockMatch[1])}&select=id`,
     );
     return json(publicUser(updated, websites.length));
+  }
+
+  const planMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/plan$/);
+  if (planMatch && request.method === "PATCH") {
+    const body = await readJson(request);
+    // Only known plan names: a typo must not silently grant unlimited services.
+    if (body.plan !== "free" && body.plan !== "pro") return json({ error: "Invalid plan" }, 400);
+    const updated = await updateUserPlan(env, planMatch[1], body.plan);
+    if (!updated) return json({ error: "User not found" }, 404);
+    const websites = await supabaseRequest<WebsiteRow[]>(env, `websites?user_id=eq.${encodeURIComponent(planMatch[1])}&select=id`);
+    return json(publicUser(updated, websites.length));
+  }
+
+  // ---- Announcements (cards shown on every user's home screen) ----
+  if (pathname === "/api/admin/announcements" && request.method === "GET") {
+    return json(await listAnnouncements(env), 200, { "cache-control": "no-store" });
+  }
+  if (pathname === "/api/admin/announcements" && request.method === "POST") {
+    const parsed = normalizeAnnouncement(await readJson(request), false);
+    if (!parsed.ok) return json({ error: parsed.error }, 400);
+    return json(await createAnnouncement(env, parsed.value), 201);
+  }
+  if (pathname === "/api/admin/announcements/image" && request.method === "POST") {
+    const type = (request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    const extension = UPLOAD_TYPES[type];
+    if (!extension) return json({ error: "Only JPG, PNG or WebP images are accepted" }, 415);
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength === 0) return json({ error: "Empty file" }, 400);
+    if (bytes.byteLength > MAX_UPLOAD_BYTES) return json({ error: "Image is larger than 5 MB" }, 413);
+    if (!matchesImageSignature(type, new Uint8Array(bytes.slice(0, 12)))) return json({ error: "The file is not a valid image" }, 415);
+    const url = await uploadImageToStorage(env, `announcements/${crypto.randomUUID()}.${extension}`, bytes, type);
+    return json({ url }, 201, { "cache-control": "no-store" });
+  }
+  const announcementMatch = pathname.match(/^\/api\/admin\/announcements\/([0-9a-fA-F-]{36})$/);
+  if (announcementMatch && request.method === "PATCH") {
+    const parsed = normalizeAnnouncement(await readJson(request), true);
+    if (!parsed.ok) return json({ error: parsed.error }, 400);
+    const updated = await updateAnnouncement(env, announcementMatch[1], parsed.value);
+    return updated ? json(updated) : json({ error: "Announcement not found" }, 404);
+  }
+  if (announcementMatch && request.method === "DELETE") {
+    return (await deleteAnnouncement(env, announcementMatch[1])) ? json({ deleted: true }) : json({ error: "Announcement not found" }, 404);
   }
 
   // Paginated inbox for one user, newest-first, 5 per page by default —
@@ -741,6 +824,7 @@ function publicAccountWebsite(website: WebsiteRow, visits: { today: number; tota
     templateStyle:
       typeof website.json_structure?.templateStyle === "string" ? website.json_structure.templateStyle : "classic",
     showBranding: website.show_branding,
+    published: website.is_published !== false,
     createdAt: website.created_at,
     updatedAt: website.updated_at,
     visitsToday: visits.today,
@@ -749,8 +833,8 @@ function publicAccountWebsite(website: WebsiteRow, visits: { today: number; tota
   };
 }
 
-async function listPublicAccountWebsites(env: Env, userId: string) {
-  const rows = await listWebsitesForUser(env, userId);
+async function listPublicAccountWebsites(env: Env, userId: string, preloaded?: WebsiteRow[]) {
+  const rows = preloaded ?? (await listWebsitesForUser(env, userId));
   return await Promise.all(
     rows.map(async (w) => {
       const visits = await getVisitStats(env, w.id).catch(() => ({ today: 0, total: 0 }));
@@ -768,6 +852,7 @@ function fullAccountWebsite(website: WebsiteRow) {
     themeColor: website.theme_color,
     jsonStructure: website.json_structure,
     showBranding: website.show_branding,
+    published: website.is_published !== false,
     createdAt: website.created_at,
     updatedAt: website.updated_at,
     collectionKey: templateCollection(website.template_id).key,
@@ -906,7 +991,8 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
     const user = await getUserById(env, userId);
     if (!user) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
-    const websites = await listPublicAccountWebsites(env, user.id);
+    const rows = await listWebsitesForUser(env, user.id);
+    const websites = await listPublicAccountWebsites(env, user.id, rows);
     return json(
       {
         id: user.id,
@@ -916,6 +1002,10 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
         createdAt: user.created_at,
         website: websites[0] ?? null,
         websites,
+        // Plan + what is left of it, so every screen can disable "create" with
+        // the real reason instead of letting the server reject it.
+        plan: user.plan || "free",
+        usage: usageFor(rows.map(toServiceRecord), user.plan),
       },
       200,
       { "cache-control": "no-store" },
@@ -948,6 +1038,18 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if ("templateStyle" in clean && !(STYLES as readonly string[]).includes(String(clean.templateStyle))) delete clean.templateStyle;
     if ("darkMode" in clean) clean.darkMode = clean.darkMode === true;
 
+    // Plan limits, enforced here (not just hidden in the UI): free = one website
+    // plus one interactive service of each type.
+    const existingServices = (await listWebsitesForUser(env, userId)).map(toServiceRecord);
+    const allowed = checkCanCreate(existingServices, templateId, user.plan);
+    if (!allowed.ok) {
+      return json(
+        { error: allowed.message, code: allowed.code, existing: { username: allowed.existing.username, name: allowed.existing.name } },
+        403,
+        { "cache-control": "no-store" },
+      );
+    }
+
     const desiredSlug = typeof body.username === "string" && body.username.trim() ? body.username.trim() : siteName;
     const uniqueUsername = await resolveUniqueUsername(env, desiredSlug);
 
@@ -970,7 +1072,9 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
     const reqUrl = new URL(request.url);
     const targetParam = reqUrl.searchParams.get("id") || reqUrl.searchParams.get("username");
-    const website = await getWebsiteForUser(env, userId, targetParam);
+    // With several services, "delete the latest one" is never what was meant.
+    if (!targetParam || !targetParam.trim()) return json({ error: "Specify which service to delete" }, 400);
+    const website = await getWebsiteForUser(env, userId, targetParam, true);
     if (!website) return json({ error: "No website yet" }, 404, { "cache-control": "no-store" });
     await deleteWebsite(env, website.id);
     return json({ deleted: true }, 200, { "cache-control": "no-store" });
@@ -990,7 +1094,7 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
     const body = await readJson(request);
     const targetBody = typeof body.id === "string" && body.id.trim() ? body.id.trim() : targetQuery;
-    const website = await getWebsiteForUser(env, userId, targetBody);
+    const website = await getWebsiteForUser(env, userId, targetBody, true);
     if (!website) return json({ error: "No website yet" }, 404, { "cache-control": "no-store" });
     const baseUpdatedAt = typeof body.baseUpdatedAt === "string" ? body.baseUpdatedAt : "";
     if (!baseUpdatedAt) return json({ error: "baseUpdatedAt is required" }, 400);
@@ -1082,6 +1186,92 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     );
   }
 
+  // Announcement cards for this person's home screen (their plan decides which).
+  if (pathname === "/api/me/announcements" && request.method === "GET") {
+    const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
+    if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    const user = await getUserById(env, userId);
+    if (!user) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    const rows = await listAnnouncements(env).catch(() => []);
+    return json({ announcements: selectForUser(rows, user.plan) }, 200, { "cache-control": "no-store" });
+  }
+  const adEventMatch = pathname.match(/^\/api\/me\/announcements\/([0-9a-fA-F-]{36})\/event$/);
+  if (adEventMatch && request.method === "POST") {
+    if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
+    const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
+    if (!userId) return json({ error: "Sign in required" }, 401);
+    const body = await readJson(request);
+    if (body.type !== "view" && body.type !== "click") return json({ error: "Invalid event" }, 400);
+    // One view per person per ad per 6 hours; clicks are capped, so counts stay honest.
+    const limited =
+      body.type === "view"
+        ? await tooManyHits(env, `adv:${userId}:${adEventMatch[1]}`, 1, 6 * 60 * 60)
+        : await tooManyHits(env, `adc:${userId}:${adEventMatch[1]}`, 5, 60 * 60);
+    if (!limited) await bumpAnnouncement(env, adEventMatch[1], body.type).catch((e) => console.warn("bump failed", e));
+    return json({ recorded: !limited });
+  }
+
+  // Pause / resume a service. Paused services keep all their data but are hidden
+  // from visitors and free their slot on the plan.
+  if (pathname === "/api/me/website/publish" && request.method === "POST") {
+    if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
+    const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
+    if (!userId) return json({ error: "Sign in required" }, 401);
+    const user = await getUserById(env, userId);
+    if (!user) return json({ error: "Sign in required" }, 401);
+    const body = await readJson(request);
+    if (typeof body.published !== "boolean") return json({ error: "Invalid published value" }, 400);
+    const target = typeof body.id === "string" ? body.id : typeof body.username === "string" ? body.username : "";
+    if (!target) return json({ error: "Specify which service" }, 400);
+    const website = await getWebsiteForUser(env, userId, target, true);
+    if (!website) return json({ error: "Service not found" }, 404);
+    if (body.published && website.is_published === false) {
+      const services = (await listWebsitesForUser(env, userId)).map(toServiceRecord);
+      const allowed = checkCanPublish(services, toServiceRecord(website), user.plan);
+      if (!allowed.ok) {
+        return json({ error: allowed.message, code: allowed.code, existing: { username: allowed.existing.username, name: allowed.existing.name } }, 403);
+      }
+    }
+    const updated = await setWebsitePublished(env, website.id, body.published);
+    return json({ published: updated ? updated.is_published !== false : body.published }, 200, { "cache-control": "no-store" });
+  }
+
+  // Recent activity across all of the person's services (bookings, orders,
+  // responses, publishes) — the same data the WhatsApp bot reads for "طلباتي".
+  if (pathname === "/api/me/activity" && request.method === "GET") {
+    const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
+    if (!userId) return json({ error: "Sign in required" }, 401, { "cache-control": "no-store" });
+    const rows = await listWebsitesForUser(env, userId);
+    const events: Array<Record<string, unknown>> = [];
+    for (const w of rows) {
+      const noun = submissionNouns(w.template_id);
+      for (const s of listSubmissions(w, 6)) {
+        events.push({
+          id: `${w.id}:${s.id}`,
+          type: "submission",
+          serviceName: w.site_name,
+          username: w.username,
+          templateId: w.template_id,
+          title: `${noun.one} جديد من ${s.name}`,
+          detail: s.summary,
+          at: s.createdAt,
+        });
+      }
+      events.push({
+        id: `${w.id}:published`,
+        type: "published",
+        serviceName: w.site_name,
+        username: w.username,
+        templateId: w.template_id,
+        title: `تم نشر «${w.site_name}»`,
+        detail: "",
+        at: w.created_at,
+      });
+    }
+    events.sort((a, b) => Date.parse(String(b.at)) - Date.parse(String(a.at)));
+    return json({ events: events.slice(0, 12) }, 200, { "cache-control": "no-store" });
+  }
+
   // Gemini-powered assistant for the dashboard card. Uses the same admin-managed
   // API keys and the same message quota as the WhatsApp bot. It never writes:
   // it returns validated edit operations that the browser applies to the draft.
@@ -1098,6 +1288,22 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (await tooManyHits(env, `dash-ai:${user.id}`, 12, 60)) {
       return json({ error: "رسائل كثيرة خلال وقت قصير. انتظر لحظات ثم أعد المحاولة.", code: "rate" }, 429);
     }
+    // Same service registry the WhatsApp bot uses. If the message clearly names
+    // a different saved service than the one open on screen, say so and let the
+    // browser switch — no AI call, no message spent.
+    const savedRows = await listWebsitesForUser(env, user.id);
+    const savedServices = savedRows.map(toServiceRecord);
+    const activeUsername = typeof body.activeUsername === "string" ? body.activeUsername.trim() : "";
+    if (activeUsername && savedServices.length > 1) {
+      const target = resolveService(message, savedServices);
+      if (target.kind === "match" && target.service.username !== activeUsername) {
+        return json(
+          { reply: "", ops: [], create: null, switchTo: { username: target.service.username, name: target.service.name } },
+          200,
+          { "cache-control": "no-store" },
+        );
+      }
+    }
     // Check keys before charging so a missing key never costs the user a message.
     if (!(await getActiveApiKeys(env)).length) {
       return json({ error: "المساعد الذكي غير متاح حالياً. يمكنك التعديل بالنقر مباشرة على البطاقة.", code: "ai_unavailable" }, 503);
@@ -1109,10 +1315,24 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     try {
       const raw = (await askGemini(
         env,
-        buildDashboardPrompt({ message, draft: sanitizeDraftContext(body.draft), history: sanitizeHistory(body.history) }),
+        buildDashboardPrompt({
+          message,
+          draft: sanitizeDraftContext(body.draft),
+          history: sanitizeHistory(body.history),
+          services: savedServices.map((s) => ({ name: s.name, typeLabel: s.typeLabel })),
+        }),
         true,
       )) as Record<string, unknown>;
       const result = normalizeAiResult(raw);
+      // A generated "create" for a type the plan no longer allows is turned into
+      // a clear explanation instead of a draft that could never be published.
+      if (result.create) {
+        const allowed = checkCanCreate(savedServices, result.create.templateId, user.plan);
+        if (!allowed.ok) {
+          result.reply = allowed.message;
+          result.create = null;
+        }
+      }
       return json(
         { ...result, freeMessagesUsed: quotaUser.free_messages_used, freeMessagesLimit: quotaUser.free_messages_limit },
         200,
@@ -1206,7 +1426,11 @@ async function handleAccount(request: Request, env: Env, pathname: string): Prom
     if (!isAllowedOrigin(env, request)) return json({ error: "Invalid request origin" }, 403);
     const userId = await getUserIdFromRequest(request, env.SESSION_SECRET);
     if (!userId) return json({ error: "Sign in required" }, 401);
-    const website = await getLatestWebsite(env, userId);
+    // The editor names the service the photo belongs to. Without this, a photo for
+    // service A was stored under the latest service B's folder and then silently
+    // rejected when A was saved (images must live under the saved site's own folder).
+    const uploadTarget = new URL(request.url).searchParams.get("site");
+    const website = uploadTarget ? await getWebsiteForUser(env, userId, uploadTarget, true) : await getLatestWebsite(env, userId);
     if (!website) return json({ error: "Create your site before uploading images" }, 404);
     if (await tooManyHits(env, `upload:${userId}`, 60, 60 * 60)) {
       return json({ error: "Too many uploads. Try again later." }, 429);

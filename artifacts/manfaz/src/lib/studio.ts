@@ -259,6 +259,7 @@ export type Action =
   | { kind: 'rename'; field: 'siteName' | 'headline' | 'description'; value: string }
   | { kind: 'remove'; target: string }
   | { kind: 'stats' }
+  | { kind: 'orders' }
   | { kind: 'undo' }
   | { kind: 'unknown' };
 
@@ -361,6 +362,14 @@ export function interpret(textRaw: string, ctx: { sectionNames: string[]; hasSit
     if (target) return { kind: 'remove', target };
   }
 
+  // Bookings / orders / responses: read from the database, never spent on the AI.
+  // (Mirrors wantsSubmissions in the Worker's service registry.)
+  if (
+    /(?:حجوزات|الحجوزات|طلبات|الطلبات|ردود|الردود|تسجيلات|التسجيلات|استفسارات|الاستفسارات|رسائل العملاء|اخر طلب|اخر حجز)/.test(norm) ||
+    /كم\s+(?:رد|حجز|طلب|تسجيل|استفسار|رساله)(?![\p{L}])/u.test(norm)
+  ) {
+    return { kind: 'orders' };
+  }
   return { kind: 'unknown' };
 }
 
@@ -590,5 +599,46 @@ export function draftFromCreate(create: AiCreate): Draft {
       templateStyle: create.templateStyle && isStyle(create.templateStyle) ? create.templateStyle : 'modern',
       ...(items.length ? { [tpl.collectionKey]: items } : {}),
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Plan limits (mirror of workers/manfaz-api/src/service-registry.ts).
+// The server is the authority and returns real numbers in /api/me → `usage`;
+// this only turns those numbers into a reason the UI can show up front.
+// ---------------------------------------------------------------------------
+
+export interface PlanUsage {
+  plan: string;
+  sites: { used: number; max: number };
+  services: Record<string, { used: number; max: number; label: string }>;
+}
+
+const INTERACTIVE_TEMPLATES = ['booking', 'survey', 'vcard', 'rsvp', 'invoice'];
+export const isInteractiveTemplate = (templateId: string) => INTERACTIVE_TEMPLATES.includes(templateId);
+
+// null = allowed. Unknown usage (offline / not loaded yet) never blocks: the
+// server still enforces the limit on save.
+export function createBlockReason(usage: PlanUsage | undefined, templateId: string): string | null {
+  if (!usage) return null;
+  if (isInteractiveTemplate(templateId)) {
+    const slot = usage.services[templateId];
+    if (slot && slot.used >= slot.max) {
+      return `الخطة المجانية تسمح بخدمة واحدة من كل نوع، ولديك «${getTemplate(templateId).label}» بالفعل.`;
+    }
+    return null;
+  }
+  if (usage.sites.used >= usage.sites.max) {
+    return 'الخطة المجانية تسمح بموقع واحد منشور في الوقت نفسه، ولديك موقع بالفعل.';
+  }
+  return null;
+}
+
+// How much of the plan is still open — drives the "create" card on the home screen.
+export function remainingSlots(usage: PlanUsage | undefined): { sites: number; services: number } | null {
+  if (!usage) return null;
+  return {
+    sites: Math.max(0, usage.sites.max - usage.sites.used),
+    services: Object.values(usage.services).filter((s) => s.used < s.max).length,
   };
 }

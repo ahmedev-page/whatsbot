@@ -22,6 +22,7 @@ create table if not exists public.users (
   created_at timestamptz not null default now()
 );
 
+alter table public.users alter column free_messages_limit set default 40;
 alter table public.users add column if not exists pending_build_request text;
 alter table public.users add column if not exists pending_image_url text;
 alter table public.users add column if not exists pending_image_new_key text;
@@ -30,6 +31,8 @@ alter table public.users add column if not exists pending_flow text;
 alter table public.users add column if not exists pending_flow_data jsonb not null default '{}'::jsonb;
 alter table public.users add column if not exists trusted_devices jsonb not null default '[]'::jsonb;
 alter table public.users add column if not exists blocked boolean not null default false;
+-- Migration 018 (plans + active service) is applied after public.websites exists, further below.
+alter table public.users add column if not exists plan text not null default 'free';
 
 -- 2. Websites table
 create table if not exists public.websites (
@@ -48,8 +51,9 @@ create table if not exists public.websites (
 
 alter table public.websites add column if not exists username text;
 alter table public.websites add column if not exists show_branding boolean not null default true;
+
 update public.websites
-set username = 'site-خ' || left(replace(public_id::text, '-', ''), 12)
+set username = 'site-' || left(replace(public_id::text, '-', ''), 12)
 where username is null;
 
 alter table public.websites alter column username set not null;
@@ -80,6 +84,10 @@ values
   ('meta_phone_number_id', '')
 on conflict (key) do nothing;
 
+update public.platform_settings
+set value = 'https://orxai.pages.dev'
+where key = 'frontend_url' and (value = '' or value = 'https://manfaz.pages.dev');
+
 -- 5. Processed WhatsApp Messages table
 create table if not exists public.processed_messages (
   message_id text primary key,
@@ -107,6 +115,10 @@ create table if not exists public.conversation_messages (
 
 alter table public.conversation_messages add column if not exists is_read boolean not null default false;
 alter table public.conversation_messages add column if not exists read_at timestamptz;
+
+update public.conversation_messages
+set is_read = true, read_at = created_at
+where direction = 'outbound' and is_read = false;
 
 create index if not exists conversation_messages_user_created_idx
   on public.conversation_messages (user_id, created_at desc);
@@ -278,3 +290,59 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   create policy "backend service role can manage login challenges" on public.login_challenges for all to service_role using (true) with check (true);
 exception when duplicate_object then null; end $$;
+
+-- 018: which service the WhatsApp bot is working on (needs public.websites)
+alter table public.users
+  add column if not exists active_website_id uuid references public.websites(id) on delete set null;
+
+-- 019: publish toggle, order notifications, announcements (see migrations/019_*.sql)
+
+alter table public.websites
+  add column if not exists is_published boolean not null default true;
+
+alter table public.users
+  add column if not exists notify_orders boolean not null default true;
+
+create table if not exists public.announcements (
+  id uuid primary key default gen_random_uuid(),
+  title text not null default '',
+  body text not null default '',
+  image_url text,
+  link_url text,
+  link_label text not null default '',
+  theme text not null default 'blue' check (theme in ('blue', 'navy', 'emerald', 'violet', 'amber', 'rose')),
+  audience text not null default 'all' check (audience in ('all', 'free', 'paid')),
+  starts_at timestamptz,
+  ends_at timestamptz,
+  is_active boolean not null default true,
+  sort_order integer not null default 0,
+  views integer not null default 0,
+  clicks integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists announcements_active_idx on public.announcements (is_active, sort_order);
+
+alter table public.announcements enable row level security;
+
+do $$ begin
+  create policy "backend service role can manage announcements" on public.announcements for all to service_role using (true) with check (true);
+exception when duplicate_object then null; end $$;
+
+-- Atomic counters (a read-modify-write from the Worker would lose counts under load).
+create or replace function public.bump_announcement(p_id uuid, p_kind text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.announcements
+  set views = views + (case when p_kind = 'view' then 1 else 0 end),
+      clicks = clicks + (case when p_kind = 'click' then 1 else 0 end)
+  where id = p_id;
+$$;
+
+revoke all on function public.bump_announcement(uuid, text) from public;
+grant execute on function public.bump_announcement(uuid, text) to service_role;
+

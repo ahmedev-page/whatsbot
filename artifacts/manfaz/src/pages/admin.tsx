@@ -19,6 +19,7 @@ import {
   Save,
   Send,
   Settings2,
+  Megaphone,
   ShieldCheck,
   Users,
   X,
@@ -53,9 +54,11 @@ import {
 } from '@workspace/api-client-react';
 import { Brand } from '@/components/brand';
 import { safeSessionStorage as sessionStorage } from '@/lib/safe-storage';
+import { AnnouncementsPanel } from '@/components/admin-announcements';
+import { adminFetch } from '@/lib/admin-api';
 import { BrandSplash, useEntrySplash } from '@/components/brand-splash';
 
-type Section = 'overview' | 'users' | 'websites' | 'keys' | 'settings';
+type Section = 'overview' | 'users' | 'websites' | 'keys' | 'settings' | 'announcements';
 
 function Skeleton({ className = '' }: { className?: string }) {
   return (
@@ -700,6 +703,17 @@ function UsersPanel() {
   const [notice, setNotice] = useState('');
   const [messagesUserId, setMessagesUserId] = useState<string | null>(null);
   const users = query.data || [];
+  // Plan is changed through the Worker; the free plan allows one published website
+  // plus one interactive service of each type, paid plans are unrestricted.
+  const changePlan = async (id: string, plan: string) => {
+    try {
+      await adminFetch(`/api/admin/users/${id}/plan`, { method: 'PATCH', body: JSON.stringify({ plan }) });
+      await query.refetch();
+      setNotice(plan === 'pro' ? 'تم تفعيل الخطة المدفوعة للمستخدم.' : 'تمت إعادة المستخدم للخطة المجانية.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'تعذّر تغيير الخطة.');
+    }
+  };
   const update = (id: string) => {
     const value = Number(delta[id]);
     if (!Number.isFinite(value) || value === 0) return;
@@ -829,6 +843,19 @@ function UsersPanel() {
                         }}
                       />
                     </div>
+                    <label className="mt-2.5 flex items-center gap-1.5 text-[11px] font-bold" style={{ color: '#475569' }}>
+                      الخطة
+                      <select
+                        value={(user as { plan?: string }).plan === 'pro' ? 'pro' : 'free'}
+                        onChange={(event) => void changePlan(user.id, event.target.value)}
+                        aria-label={`خطة ${user.phoneNumber}`}
+                        className="rounded-lg border px-1.5 py-1 text-[11px] font-extrabold"
+                        style={{ borderColor: '#CBD5E1', backgroundColor: '#fff', color: '#0F172A' }}
+                      >
+                        <option value="free">مجانية (موقع + خدمة من كل نوع)</option>
+                        <option value="pro">مدفوعة (بلا حدود)</option>
+                      </select>
+                    </label>
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-2">
@@ -1333,6 +1360,7 @@ export default function Admin() {
     { id: 'overview' as Section, label: 'نظرة عامة', icon: LayoutDashboard },
     { id: 'users' as Section, label: 'المستخدمون', icon: Users },
     { id: 'websites' as Section, label: 'المواقع', icon: Globe },
+    { id: 'announcements' as Section, label: 'الإعلانات', icon: Megaphone },
     { id: 'keys' as Section, label: 'مفاتيح Gemini', icon: KeyRound },
     { id: 'settings' as Section, label: 'الإعدادات', icon: Settings2 },
   ];
@@ -1485,6 +1513,7 @@ export default function Admin() {
           )}
           {section === 'users' && <UsersPanel />}
           {section === 'websites' && <WebsitesPanel />}
+          {section === 'announcements' && <AnnouncementsPanel />}
           {section === 'keys' && <KeysPanel />}
           {section === 'settings' && <SettingsPanel />}
         </main>

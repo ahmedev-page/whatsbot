@@ -197,8 +197,14 @@ export function buildDashboardPrompt(params: {
   message: string;
   draft: DraftContext | null;
   history: Array<{ role: "user" | "bot"; text: string }>;
+  // The person's other saved services (from the shared registry), so the model
+  // knows what exists instead of guessing.
+  services?: Array<{ name: string; typeLabel: string }>;
 }): string {
   const { message, draft, history } = params;
+  const servicesText = params.services?.length
+    ? params.services.map((s) => `«${s.name}» (${s.typeLabel})`).join("، ")
+    : "(لا يوجد)";
   const historyText = history.map((m) => `${m.role === "user" ? "المستخدم" : "ORxai"}: ${m.text}`).join("\n") || "(لا يوجد)";
 
   let state = "لا توجد بطاقة مفتوحة حالياً — المستخدم لم يبدأ خدمة بعد.";
@@ -228,6 +234,8 @@ export function buildDashboardPrompt(params: {
   return `أنت ORxai، مساعد ذكي داخل لوحة تحكم منصة تبني مواقع صغيرة لأصحاب الأعمال. المستخدم يعدّل بطاقة معاينة حية، وأنت تحوّل كلامه (بأي لهجة عربية) إلى عمليات دقيقة على البطاقة. لا تحفظ شيئاً بنفسك؛ المستخدم يراجع التعديل ثم يضغط «حفظ».
 
 ${state}
+
+خدمات المستخدم المحفوظة: ${servicesText}
 
 سياق آخر الرسائل:
 ${historyText}

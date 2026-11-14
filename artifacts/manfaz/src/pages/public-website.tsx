@@ -2980,11 +2980,7 @@ export default function PublicWebsite() {
   const { username = '' } = useParams<{ username: string }>();
   const query = useGetPublicWebsite(username, { query: { queryKey: getGetPublicWebsiteQueryKey(username), enabled: Boolean(username) } });
   const localSite = useMemo(() => getLocalWebsiteByUsername(username), [username]);
-  const remoteSite =
-    query.data && typeof query.data === 'object' && typeof query.data.templateId === 'string'
-      ? query.data
-      : undefined;
-  const website = remoteSite || (localSite ? {
+  const website = query.data || (localSite ? {
     publicId: localSite.id,
     username: localSite.username,
     siteName: localSite.siteName,
@@ -3059,3 +3055,4 @@ export default function PublicWebsite() {
 
   return <div className={`site-template-root site-template-${template} ${modern ? 'site-template-modern' : 'site-template-classic'}`} style={paletteStyle}><Body {...props} /></div>;
 }
+

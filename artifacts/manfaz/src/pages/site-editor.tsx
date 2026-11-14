@@ -51,10 +51,6 @@ import {
   type SiteStyle,
   type SiteSubmission,
 } from '@/lib/account';
-import {
-  STUDIO_PANEL_META,
-  type StudioActivePanel,
-} from '@/lib/conversational-creator';
 
 type Json = Record<string, unknown>;
 interface Draft {
@@ -1233,21 +1229,7 @@ function SubmissionsPanel({
 // ---------------------------------------------------------------------------
 // The editor
 // ---------------------------------------------------------------------------
-function EditorForm({
-  initial,
-  onReload,
-  forcedTab,
-  focusedSection,
-  onBackToChat,
-  onDeleted,
-}: {
-  initial: SiteDocument;
-  onReload: () => void;
-  forcedTab?: 'editor' | 'results';
-  focusedSection?: StudioActivePanel;
-  onBackToChat?: (savedSectionLabel?: string) => void;
-  onDeleted?: () => void;
-}) {
+function EditorForm({ initial, onReload }: { initial: SiteDocument; onReload: () => void }) {
   const [, navigate] = useLocation();
   const save = useSaveSite();
   const deleteSite = useDeleteSite();
@@ -1259,10 +1241,7 @@ function EditorForm({
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
   const [confirmDeleteSite, setConfirmDeleteSite] = useState(false);
-  const [showInlinePreview, setShowInlinePreview] = useState(false);
   const [studioTab, setStudioTab] = useState<'editor' | 'results'>(() => {
-    if (focusedSection === 'results') return 'results';
-    if (forcedTab) return forcedTab;
     if (typeof window !== 'undefined') {
       const search = window.location.search;
       if (search.includes('tab=results') || search.includes('tab=submissions')) {
@@ -1271,16 +1250,6 @@ function EditorForm({
     }
     return 'editor';
   });
-
-  useEffect(() => {
-    if (focusedSection === 'results') {
-      setStudioTab('results');
-    } else if (focusedSection) {
-      setStudioTab('editor');
-    } else if (forcedTab) {
-      setStudioTab(forcedTab);
-    }
-  }, [forcedTab, focusedSection]);
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(baseline), [draft, baseline]);
   useEffect(() => {
@@ -1333,15 +1302,9 @@ function EditorForm({
     : 'هذه الصورة لن تظهر بالنمط الحالي — اختر "سينمائي" أو "تطبيق جوال" لعرضها.';
   const nameOk = draft.siteName.trim().length > 0;
 
-  const focusedMeta = focusedSection ? STUDIO_PANEL_META[focusedSection] : undefined;
-
-  const doSave = (returnAfterSave = false) => {
+  const doSave = () => {
     if (!nameOk) {
       setError('اسم الموقع مطلوب.');
-      return;
-    }
-    if (!dirty && returnAfterSave) {
-      onBackToChat?.(focusedMeta?.badge || 'التعديلات');
       return;
     }
     setError('');
@@ -1365,9 +1328,6 @@ function EditorForm({
           setPreviewKey(Date.now());
           setSavedFlash(true);
           window.setTimeout(() => setSavedFlash(false), 2200);
-          if (returnAfterSave) {
-            onBackToChat?.(focusedMeta?.badge || 'التعديلات');
-          }
         },
         onError: (failure) => {
           if (failure instanceof ApiError && failure.status === 409) {
@@ -1395,50 +1355,27 @@ function EditorForm({
     ? 'تغييرات غير محفوظة'
     : 'كل شيء محفوظ';
 
-  // Visibility flags so only the requested part is rendered when focusedSection is active
-  const showIdentityTexts = !focusedSection || focusedSection === 'content';
-  const showSettingsFields = !focusedSection || focusedSection === 'settings';
-  const showTemplateStyles = !focusedSection || focusedSection === 'template';
-  const showColorsAndMedia = !focusedSection || focusedSection === 'colors';
-  const showProductsCollection = !focusedSection || focusedSection === 'products';
-  const showContactAndHours = !focusedSection || focusedSection === 'contact';
-  const showExtraContentSections = !focusedSection || focusedSection === 'content';
-
   return (
-    <div className="space-y-5" data-testid={focusedSection ? `focused-editor-${focusedSection}` : 'full-editor'}>
+    <div className="space-y-5">
       {/* Top Studio Sticky Action Bar */}
       <div
-        className="sticky top-28 z-20 -mx-1 flex flex-wrap items-center gap-3 rounded-2xl border border-[#CBD5E1] bg-white px-4 py-3 shadow-md"
+        className="sticky top-18 z-20 -mx-1 flex flex-wrap items-center gap-3 rounded-2xl border border-[#CBD5E1] bg-white px-4 py-3 shadow-md"
         style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
       >
-        {onBackToChat ? (
-          <button
-            type="button"
-            onClick={() => onBackToChat()}
-            data-testid="button-back-to-chat"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 py-2 text-xs font-extrabold text-[#0F172A] transition-colors hover:bg-[#E2E8F0]"
-            style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-          >
-            <ArrowRight size={16} />
-            <span>العودة للمحادثة</span>
-          </button>
-        ) : (
-          <Link
-            href="/dashboard/services"
-            className="grid size-9 place-items-center rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] text-[#0F172A] transition-colors hover:bg-[#E2E8F0]"
-            style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-            aria-label="رجوع"
-          >
-            <ArrowRight size={18} />
-          </Link>
-        )}
-
+        <Link
+          href="/dashboard/services"
+          className="grid size-9 place-items-center rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] text-[#0F172A] transition-colors hover:bg-[#E2E8F0]"
+          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+          aria-label="رجوع"
+        >
+          <ArrowRight size={18} />
+        </Link>
         <div className="min-w-0 flex-1">
           <p
             className="truncate text-[15px] font-black text-[#0F172A]"
             style={{ color: '#0F172A' }}
           >
-            {focusedMeta ? focusedMeta.title : 'استوديو تحرير الموقع'}
+            استوديو تحرير الموقع
           </p>
           <p
             className="flex items-center gap-1.5 text-xs font-bold"
@@ -1449,30 +1386,15 @@ function EditorForm({
             {savedFlash && <Check size={13} style={{ color: '#059669' }} />} {stateLabel}
           </p>
         </div>
-
-        {!focusedSection && (
-          <button
-            type="button"
-            onClick={() => setShowInlinePreview((v) => !v)}
-            data-testid="button-toggle-inline-preview"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-3.5 py-2 text-xs font-extrabold text-[#1D4ED8] hover:bg-[#DBEAFE]"
-            style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1D4ED8' }}
-          >
-            <Smartphone size={15} />
-            <span>{showInlinePreview ? 'إخفاء المعاينة' : 'معاينة حية'}</span>
-          </button>
-        )}
-
         <a
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 py-2 text-xs font-bold text-[#0F172A] hover:bg-[#E2E8F0]"
+          className="hidden items-center gap-1.5 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3.5 py-2 text-xs font-bold text-[#0F172A] hover:bg-[#E2E8F0] sm:inline-flex"
           style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
         >
           <ExternalLink size={15} /> فتح الموقع
         </a>
-
         {dirty && (
           <button
             type="button"
@@ -1488,12 +1410,11 @@ function EditorForm({
             تراجع
           </button>
         )}
-
         <button
           type="button"
-          onClick={() => doSave(false)}
+          onClick={doSave}
           disabled={!dirty || save.isPending}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#1D4ED8] px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#1E40AF] disabled:bg-[#CBD5E1] disabled:text-[#64748B]"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#1D4ED8] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:bg-[#1E40AF] disabled:bg-[#CBD5E1] disabled:text-[#64748B]"
           style={
             !dirty || save.isPending
               ? { backgroundColor: '#CBD5E1', color: '#475569' }
@@ -1501,22 +1422,8 @@ function EditorForm({
           }
           data-testid="button-save-site"
         >
-          {save.isPending && <Loader2 size={14} className="animate-spin" />} حفظ التعديلات
+          {save.isPending && <Loader2 size={15} className="animate-spin" />} حفظ التعديلات
         </button>
-
-        {onBackToChat && (
-          <button
-            type="button"
-            onClick={() => doSave(true)}
-            disabled={save.isPending}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-[#059669] px-4 py-2 text-xs font-extrabold text-white shadow-sm transition-all hover:bg-[#047857] disabled:opacity-50"
-            style={{ backgroundColor: '#059669', color: '#FFFFFF' }}
-            data-testid="button-save-and-return"
-          >
-            <Check size={15} />
-            <span>{dirty ? 'حفظ والعودة للمحادثة' : 'تم — العودة للمحادثة'}</span>
-          </button>
-        )}
       </div>
 
       {conflict && (
@@ -1554,930 +1461,760 @@ function EditorForm({
         </Card>
       )}
 
-      {showInlinePreview && !focusedSection && (
-        <Card
-          className="border border-[#93C5FD] bg-[#0B132B] p-4 text-white"
-          style={{ backgroundColor: '#0B132B', borderColor: '#93C5FD', color: '#FFFFFF' }}
-          data-testid="inline-live-preview-card"
-        >
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="flex items-center gap-2 text-xs font-extrabold text-[#38BDF8]">
-              <Smartphone size={16} />
-              <span>معاينة حية تفاعلية لـ «{draft.siteName}» ({url})</span>
-            </p>
-            <button
-              type="button"
-              onClick={() => setPreviewKey(Date.now())}
-              className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-white/20"
-            >
-              <RefreshCw size={12} /> تحديث المعاينة
-            </button>
-          </div>
-          <div
-            className="mx-auto h-[540px] w-full max-w-[360px] overflow-hidden rounded-[32px] border-[6px] border-[#1E293B] bg-white shadow-2xl"
-            style={{ backgroundColor: '#FFFFFF', borderColor: '#1E293B' }}
-          >
-            <iframe
-              key={`inline-${previewKey}`}
-              src={`${url}?_=${previewKey}`}
-              title="معاينة الموقع الحية"
-              className="size-full"
-              loading="lazy"
-            />
-          </div>
-        </Card>
-      )}
-
-      {/* Studio Mode Tabs: Only shown when not in focused single-section mode */}
-      {!focusedSection && (
-        <div
-          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#CBD5E1] bg-white p-2"
-          style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setStudioTab('editor')}
-              className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all sm:text-sm"
-              style={
-                studioTab === 'editor'
-                  ? { backgroundColor: '#0B132B', color: '#FFFFFF' }
-                  : { backgroundColor: '#F8FAFC', color: '#334155' }
-              }
-              data-testid="tab-studio-editor"
-            >
-              <LayoutGrid size={16} />
-              <span>محرر المحتوى والتصميم</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setStudioTab('results')}
-              className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all sm:text-sm"
-              style={
-                studioTab === 'results'
-                  ? { backgroundColor: '#1D4ED8', color: '#FFFFFF' }
-                  : { backgroundColor: '#EFF6FF', color: '#1D4ED8' }
-              }
-              data-testid="tab-studio-results"
-            >
-              <BarChart3 size={16} />
-              <span>
-                {isSurvey
-                  ? 'نتائج الاستبيان والردود'
-                  : isBooking
-                  ? 'الحجوزات والمواعيد الواردة'
-                  : 'النتائج والردود المستلمة'}
-              </span>
-              <span
-                className="rounded-full px-2 py-0.5 font-mono text-xs font-black"
-                style={
-                  studioTab === 'results'
-                    ? { backgroundColor: '#FFFFFF', color: '#1D4ED8' }
-                    : { backgroundColor: '#1D4ED8', color: '#FFFFFF' }
-                }
-              >
-                {submissions.length}
-              </span>
-            </button>
-          </div>
-
+      {/* Studio Mode Tabs: Content Editor vs Results & Submissions */}
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#CBD5E1] bg-white p-2"
+        style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={onReload}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 py-2 text-xs font-bold text-[#334155] hover:bg-[#E2E8F0]"
-            style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
-            data-testid="button-refresh-submissions"
+            onClick={() => setStudioTab('editor')}
+            className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all sm:text-sm"
+            style={
+              studioTab === 'editor'
+                ? { backgroundColor: '#0B132B', color: '#FFFFFF' }
+                : { backgroundColor: '#F8FAFC', color: '#334155' }
+            }
+            data-testid="tab-studio-editor"
           >
-            <RefreshCw size={14} /> تحديث النتائج
+            <LayoutGrid size={16} />
+            <span>محرر المحتوى والتصميم</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStudioTab('results')}
+            className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all sm:text-sm"
+            style={
+              studioTab === 'results'
+                ? { backgroundColor: '#1D4ED8', color: '#FFFFFF' }
+                : { backgroundColor: '#EFF6FF', color: '#1D4ED8' }
+            }
+            data-testid="tab-studio-results"
+          >
+            <BarChart3 size={16} />
+            <span>
+              {isSurvey
+                ? 'نتائج الاستبيان والردود'
+                : isBooking
+                ? 'الحجوزات والمواعيد الواردة'
+                : 'النتائج والردود المستلمة'}
+            </span>
+            <span
+              className="rounded-full px-2 py-0.5 font-mono text-xs font-black"
+              style={
+                studioTab === 'results'
+                  ? { backgroundColor: '#FFFFFF', color: '#1D4ED8' }
+                  : { backgroundColor: '#1D4ED8', color: '#FFFFFF' }
+              }
+            >
+              {submissions.length}
+            </span>
           </button>
         </div>
-      )}
 
-      {studioTab === 'results' || focusedSection === 'results' ? (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={onReload}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[#CBD5E1] bg-white px-3.5 py-2 text-xs font-bold text-[#0F172A] hover:bg-[#F1F5F9]"
-              style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#0F172A' }}
-              data-testid="button-refresh-submissions"
-            >
-              <RefreshCw size={14} /> تحديث النتائج والردود
-            </button>
-          </div>
-          <SubmissionsPanel
-            templateId={draft.templateId}
-            submissions={submissions}
-            questions={list}
-            onDeleteSubmission={(subId) => {
-              const nextSubs = submissions.filter((s) => s.id !== subId);
-              setKey('submissions', nextSubs);
-            }}
-            onClearSubmissions={() => {
-              setKey('submissions', []);
-            }}
-          />
-        </div>
+        <button
+          type="button"
+          onClick={onReload}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-3 py-2 text-xs font-bold text-[#334155] hover:bg-[#E2E8F0]"
+          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#334155' }}
+          data-testid="button-refresh-submissions"
+        >
+          <RefreshCw size={14} /> تحديث النتائج
+        </button>
+      </div>
+
+      {studioTab === 'results' ? (
+        <SubmissionsPanel
+          templateId={draft.templateId}
+          submissions={submissions}
+          questions={list}
+          onDeleteSubmission={(subId) => {
+            const nextSubs = submissions.filter((s) => s.id !== subId);
+            setKey('submissions', nextSubs);
+          }}
+          onClearSubmissions={() => {
+            setKey('submissions', []);
+          }}
+        />
       ) : (
-        <div className="flex items-start gap-8">
-          <fieldset disabled={save.isPending} className="min-w-0 flex-1 space-y-4">
-            {/* 1. Content / Basic Identity Texts Section */}
-            {showIdentityTexts && (
-              <Section
-                icon={Type}
-                title="النصوص والعناوين الرئيسية"
-                subtitle="اسم الخدمة، العبارة الترحيبية، العنوان الرئيسي، الوصف، وزر الإجراء"
-                defaultOpen
+      <div className="flex items-start gap-8">
+        <fieldset disabled={save.isPending} className="min-w-0 flex-1 space-y-4">
+          <Section
+            icon={Type}
+            title="الأساسيات والهوية"
+            subtitle="الاسم والرابط المخصص ونوع النشاط والعناوين والوصف"
+            defaultOpen
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="اسم الموقع *"
+                value={draft.siteName}
+                onChange={(value) => setDraft((current) => ({ ...current, siteName: value }))}
+                max={80}
+                placeholder="مثال: متجر النور"
+              />
+              <TextField
+                label="الرابط المخصص للموقع (Username)"
+                value={draft.username}
+                onChange={(value) => setDraft((current) => ({ ...current, username: value }))}
+                max={32}
+                ltr
+                placeholder="al-noor-store"
+                hint={siteUrl(slugifyUsername(draft.username.trim() || draft.siteName.trim()))}
+              />
+            </div>
+
+            <Field label="نوع النشاط / القالب المخصص">
+              <select
+                value={draft.templateId}
+                onChange={(e) =>
+                  setDraft((current) => ({ ...current, templateId: e.target.value }))
+                }
+                className={inputClass}
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
               >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <TextField
-                    label="اسم الموقع أو الخدمة *"
-                    value={draft.siteName}
-                    onChange={(value) => setDraft((current) => ({ ...current, siteName: value }))}
-                    max={80}
-                    placeholder="مثال: دار آروما"
-                  />
-                  <TextField
-                    label="العبارة التعريفية العلوية (Tagline)"
-                    value={text('tagline')}
-                    onChange={(value) => setKey('tagline', value)}
-                    placeholder="جملة قصيرة تظهر أعلى الموقع"
-                  />
-                </div>
+                <optgroup label="1. خدمات المواقع والواجهات الرقمية">
+                  <option value="store">متجر إلكتروني وسلة طلبات (Store)</option>
+                  <option value="restaurant">مطعم أو مقهى ومنيو رقمي (Restaurant)</option>
+                  <option value="services">موقع شركة أو مؤسسة خدمية (Corporate)</option>
+                  <option value="portfolio">صفحة شخصية ومعرض أعمال (Portfolio)</option>
+                  <option value="vcard">بطاقة تواصل رقمية وروابط (Bio Links)</option>
+                </optgroup>
+                <optgroup label="2. الخدمات التفاعلية والأدوات الذكية">
+                  <option value="survey">استبيان واستطلاع رأي تفاعلي (Survey)</option>
+                  <option value="booking">نظام حجز مواعيد واستشارات (Booking)</option>
+                  <option value="rsvp">دعوة فعالية وتأكيد حضور (RSVP)</option>
+                  <option value="invoice">باقات الأسعار وحاسبة عروض (Packages)</option>
+                </optgroup>
+              </select>
+            </Field>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <TextField
-                    label="العنوان الرئيسي البارز (Headline)"
-                    value={text('headline')}
-                    onChange={(value) => setKey('headline', value)}
-                    placeholder={draft.siteName || 'عنوان واجهة الموقع'}
-                  />
-                  <TextField
-                    label="نص زر الإجراء والتواصل (CTA)"
-                    value={text('ctaLabel')}
-                    onChange={(value) => setKey('ctaLabel', value)}
-                    placeholder="تواصل معنا"
-                    max={40}
-                  />
-                </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="العبارة التعريفية العلوية (Tagline)"
+                value={text('tagline')}
+                onChange={(value) => setKey('tagline', value)}
+                placeholder="جملة قصيرة تظهر أعلى الموقع"
+              />
+              <TextField
+                label="العنوان الرئيسي البارز (Headline)"
+                value={text('headline')}
+                onChange={(value) => setKey('headline', value)}
+                placeholder={draft.siteName || 'عنوان واجهة الموقع'}
+              />
+            </div>
 
-                <TextField
-                  label="الوصف التفصيلي"
-                  value={text('description')}
-                  onChange={(value) => setKey('description', value)}
-                  multiline
-                  placeholder="عرّف الزائر بنشاطك وما يميز خدماتك"
-                />
-              </Section>
-            )}
+            <TextField
+              label="الوصف التفصيلي"
+              value={text('description')}
+              onChange={(value) => setKey('description', value)}
+              multiline
+              placeholder="عرّف الزائر بنشاطك وما يميز خدماتك"
+            />
+            <TextField
+              label="نص زر الإجراء والتواصل (CTA)"
+              value={text('ctaLabel')}
+              onChange={(value) => setKey('ctaLabel', value)}
+              placeholder="تواصل معنا"
+              max={40}
+            />
+          </Section>
 
-            {/* 2. Template & Layout Style Section */}
-            {showTemplateStyles && (
-              <Section
-                icon={Palette}
-                title="القالب ونمط التصميم"
-                subtitle="اختر نمط تخطيط الواجهة والقالب المخصص لنشاطك"
-                defaultOpen
+          <Section icon={Palette} title="المظهر" subtitle="الشكل والألوان والشعار" defaultOpen>
+            {isSingleLayoutTool ? (
+              <p
+                className="rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm font-medium leading-6 text-[#475569]"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#475569' }}
               >
-                {isSingleLayoutTool ? (
-                  <p
-                    className="rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-4 py-3 text-sm font-medium leading-6 text-[#475569]"
-                    style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#475569' }}
-                  >
-                    قالب هذه الخدمة التفاعلية مصمم خصيصاً لطبيعتها ولا يحتاج لتغيير النمط.
-                  </p>
-                ) : (
-                  <div>
-                    <span
-                      className="mb-2 block text-xs font-extrabold text-[#0F172A]"
-                      style={{ color: '#0F172A' }}
-                    >
-                      نمط التصميم
-                    </span>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {(Object.keys(STYLE_INFO) as SiteStyle[]).map((key) => {
-                        const active = style === key;
-                        const photos = initial.imageSupport[key];
-                        return (
-                          <button
-                            type="button"
-                            key={key}
-                            onClick={() => {
-                              setKey('templateStyle', key);
-                              if (key === 'cinematic' && structure.darkMode !== true)
-                                setKey('darkMode', true);
-                            }}
-                            className="rounded-2xl border-2 p-4 text-right transition-all"
-                            style={
-                              active
-                                ? {
-                                    backgroundColor: '#EFF6FF',
-                                    borderColor: '#1D4ED8',
-                                    color: '#0F172A',
-                                  }
-                                : {
-                                    backgroundColor: '#F8FAFC',
-                                    borderColor: '#CBD5E1',
-                                    color: '#0F172A',
-                                  }
-                            }
-                            aria-pressed={active}
-                            data-testid={`style-${key}`}
-                          >
-                            <span className="flex items-center justify-between">
-                              <span className="font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
-                                {STYLE_INFO[key].title}
-                              </span>
-                              {active && (
-                                <span
-                                  className="grid size-5 place-items-center rounded-full bg-[#1D4ED8] text-white"
-                                  style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-                                >
-                                  <Check size={12} strokeWidth={3.5} />
-                                </span>
-                              )}
-                            </span>
-                            <span
-                              className="mt-1 block text-xs font-medium text-[#475569]"
-                              style={{ color: '#475569' }}
-                            >
-                              {STYLE_INFO[key].desc}
-                            </span>
-                            <span
-                              className="mt-2.5 inline-block text-[11px] font-extrabold"
-                              style={{ color: photos ? '#059669' : '#64748B' }}
-                            >
-                              {photos ? '● يعرض صور العناصر' : '○ بدون صور للعناصر'}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {hiddenPhotos > 0 && (
-                      <p
-                        className="mt-3 flex items-start gap-2 rounded-xl border border-[#93C5FD] bg-[#EFF6FF] px-4 py-3 text-xs font-bold leading-6 text-[#1E3A8A]"
-                        style={{ backgroundColor: '#EFF6FF', borderColor: '#93C5FD', color: '#1E3A8A' }}
-                        data-testid="warning-hidden-photos"
-                      >
-                        <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {hiddenPhotos} صورة لن تظهر بهذا النمط. اختر "سينمائي" أو "تطبيق جوال" إذا تبي عرضها.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </Section>
-            )}
-
-            {/* 3. Colors, Dark Mode, Logo & Hero Image Section */}
-            {showColorsAndMedia && (
-              <Section
-                icon={Palette}
-                title="الألوان والشعار والغلاف"
-                subtitle="لون الهوية الرئيسي، الوضع الداكن، الشعار، والصورة الرئيسية"
-                defaultOpen
-              >
-                <div>
-                  <span
-                    className="mb-2 block text-xs font-extrabold text-[#0F172A]"
-                    style={{ color: '#0F172A' }}
-                  >
-                    اللون الرئيسي
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    {COLOR_PRESETS.map((color) => (
+                قالب هذه الخدمة التفاعلية مصمم خصيصاً لطبيعتها ولا يحتاج لتغيير النمط.
+              </p>
+            ) : (
+              <div>
+                <span
+                  className="mb-2 block text-xs font-extrabold text-[#0F172A]"
+                  style={{ color: '#0F172A' }}
+                >
+                  نمط التصميم
+                </span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {(Object.keys(STYLE_INFO) as SiteStyle[]).map((key) => {
+                    const active = style === key;
+                    const photos = initial.imageSupport[key];
+                    return (
                       <button
                         type="button"
-                        key={color}
-                        onClick={() => setDraft((current) => ({ ...current, themeColor: color }))}
-                        aria-label={color}
-                        className={`grid size-9 place-items-center rounded-full ring-offset-2 transition-all ${
-                          draft.themeColor.toLowerCase() === color.toLowerCase()
-                            ? 'ring-2 ring-[#0F172A]'
-                            : 'hover:scale-110'
-                        }`}
-                        style={{ backgroundColor: color, color: '#FFFFFF' }}
-                      >
-                        {draft.themeColor.toLowerCase() === color.toLowerCase() && (
-                          <Check size={15} className="text-white" strokeWidth={3} />
-                        )}
-                      </button>
-                    ))}
-                    <label
-                      className="relative grid size-9 cursor-pointer place-items-center overflow-hidden rounded-full border-2 border-dashed border-[#CBD5E1] text-[#475569]"
-                      style={{ borderColor: '#CBD5E1', color: '#475569' }}
-                      aria-label="لون مخصص"
-                    >
-                      <Plus size={15} />
-                      <input
-                        type="color"
-                        value={/^#[0-9a-fA-F]{6}$/.test(draft.themeColor) ? draft.themeColor : '#1D4ED8'}
-                        onChange={(event) =>
-                          setDraft((current) => ({ ...current, themeColor: event.target.value }))
+                        key={key}
+                        onClick={() => {
+                          setKey('templateStyle', key);
+                          if (key === 'cinematic' && structure.darkMode !== true)
+                            setKey('darkMode', true);
+                        }}
+                        className="rounded-2xl border-2 p-4 text-right transition-all"
+                        style={
+                          active
+                            ? {
+                                backgroundColor: '#EFF6FF',
+                                borderColor: '#1D4ED8',
+                                color: '#0F172A',
+                              }
+                            : {
+                                backgroundColor: '#F8FAFC',
+                                borderColor: '#CBD5E1',
+                                color: '#0F172A',
+                              }
                         }
-                        className="absolute inset-0 cursor-pointer opacity-0"
-                      />
-                    </label>
-                  </div>
+                        aria-pressed={active}
+                        data-testid={`style-${key}`}
+                      >
+                        <span className="flex items-center justify-between">
+                          <span className="font-black text-[#0F172A]" style={{ color: '#0F172A' }}>
+                            {STYLE_INFO[key].title}
+                          </span>
+                          {active && (
+                            <span
+                              className="grid size-5 place-items-center rounded-full bg-[#1D4ED8] text-white"
+                              style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+                            >
+                              <Check size={12} strokeWidth={3.5} />
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className="mt-1 block text-xs font-medium text-[#475569]"
+                          style={{ color: '#475569' }}
+                        >
+                          {STYLE_INFO[key].desc}
+                        </span>
+                        <span
+                          className="mt-2.5 inline-block text-[11px] font-extrabold"
+                          style={{ color: photos ? '#059669' : '#64748B' }}
+                        >
+                          {photos ? '● يعرض صور العناصر' : '○ بدون صور للعناصر'}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <Toggle
-                  checked={structure.darkMode === true}
-                  onChange={(value) => setKey('darkMode', value)}
-                  label="الوضع الداكن"
-                  hint="يفتح الموقع بخلفية داكنة، والزائر يقدر يبدّل بنفسه."
-                />
-                <div className="grid gap-6 sm:grid-cols-2">
-                  <ImageField
-                    label="الشعار"
-                    value={text('logo')}
-                    onChange={(url) => setKey('logo', url)}
+                {hiddenPhotos > 0 && (
+                  <p
+                    className="mt-3 flex items-start gap-2 rounded-xl border border-[#93C5FD] bg-[#EFF6FF] px-4 py-3 text-xs font-bold leading-6 text-[#1E3A8A]"
+                    style={{ backgroundColor: '#EFF6FF', borderColor: '#93C5FD', color: '#1E3A8A' }}
+                    data-testid="warning-hidden-photos"
+                  >
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {hiddenPhotos} صورة لن تظهر بهذا النمط. اختر "سينمائي" أو "تطبيق جوال" إذا تبي عرضها.
+                  </p>
+                )}
+              </div>
+            )}
+            <div>
+              <span
+                className="mb-2 block text-xs font-extrabold text-[#0F172A]"
+                style={{ color: '#0F172A' }}
+              >
+                اللون الرئيسي
+              </span>
+              <div className="flex flex-wrap items-center gap-2.5">
+                {COLOR_PRESETS.map((color) => (
+                  <button
+                    type="button"
+                    key={color}
+                    onClick={() => setDraft((current) => ({ ...current, themeColor: color }))}
+                    aria-label={color}
+                    className={`grid size-9 place-items-center rounded-full ring-offset-2 transition-all ${
+                      draft.themeColor.toLowerCase() === color.toLowerCase()
+                        ? 'ring-2 ring-[#0F172A]'
+                        : 'hover:scale-110'
+                    }`}
+                    style={{ backgroundColor: color, color: '#FFFFFF' }}
+                  >
+                    {draft.themeColor.toLowerCase() === color.toLowerCase() && (
+                      <Check size={15} className="text-white" strokeWidth={3} />
+                    )}
+                  </button>
+                ))}
+                <label
+                  className="relative grid size-9 cursor-pointer place-items-center overflow-hidden rounded-full border-2 border-dashed border-[#CBD5E1] text-[#475569]"
+                  style={{ borderColor: '#CBD5E1', color: '#475569' }}
+                  aria-label="لون مخصص"
+                >
+                  <Plus size={15} />
+                  <input
+                    type="color"
+                    value={/^#[0-9a-fA-F]{6}$/.test(draft.themeColor) ? draft.themeColor : '#1D4ED8'}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, themeColor: event.target.value }))
+                    }
+                    className="absolute inset-0 cursor-pointer opacity-0"
                   />
-                  <ImageField
-                    label="الصورة الرئيسية"
-                    value={text('heroImage')}
-                    onChange={(url) => setKey('heroImage', url)}
+                </label>
+              </div>
+            </div>
+            <Toggle
+              checked={structure.darkMode === true}
+              onChange={(value) => setKey('darkMode', value)}
+              label="الوضع الداكن"
+              hint="يفتح الموقع بخلفية داكنة، والزائر يقدر يبدّل بنفسه."
+            />
+            <div className="grid gap-6 sm:grid-cols-2">
+              <ImageField
+                label="الشعار"
+                value={text('logo')}
+                onChange={(url) => setKey('logo', url)}
+              />
+              <ImageField
+                label="الصورة الرئيسية"
+                value={text('heroImage')}
+                onChange={(url) => setKey('heroImage', url)}
+              />
+            </div>
+          </Section>
+
+          <Section
+            icon={LayoutGrid}
+            title={collection.title}
+            subtitle={`أضف ${collection.singular} وعدّله ورتّبه`}
+            defaultOpen
+            badge={
+              <span
+                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+              >
+                {list.length}
+              </span>
+            }
+          >
+            {isSurvey && (
+              <div
+                className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] p-3.5"
+                style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }}
+              >
+                <div>
+                  <p className="text-xs font-black text-[#1E3A8A]" style={{ color: '#1E3A8A' }}>
+                    أنواع الأسئلة المتنوعة المتاحة في الاستبيان:
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-bold text-[#1D4ED8]" style={{ color: '#1D4ED8' }}>
+                    اختيار واحد · اختيار متعدد · تقييم بالنجوم (1-5) · مقياس توصية رقمي (1-10) · نعم/لا · سؤال نصي مفتوح
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setKey(collection.key, [
+                      ...list,
+                      ...(DEFAULT_SURVEY_QUESTIONS as unknown as Json[]),
+                    ]);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#1E40AF]"
+                  style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
+                  data-testid="button-insert-preset-survey-questions"
+                >
+                  <Sparkles size={14} /> إدراج 5 أسئلة متنوعة جاهزة
+                </button>
+              </div>
+            )}
+            <Repeater
+              items={list}
+              onChange={(next) => setKey(collection.key, next)}
+              fields={collection.fields}
+              singular={collection.singular}
+              titleKeys={collection.fields[0].keys}
+              blank={() =>
+                isSurvey
+                  ? {
+                      name: '',
+                      duration: 'choice',
+                      category: 'ممتاز، جيد جداً، جيد، مقبول',
+                      description: '',
+                    }
+                  : { [collection.fields[0].keys[0]]: '' }
+              }
+              imageNote={imageNote}
+            />
+          </Section>
+
+          <Section
+            icon={Phone}
+            title="التواصل"
+            subtitle="الأرقام والعنوان وحسابات التواصل الاجتماعي"
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextField
+                label="الجوال"
+                value={nested('contact', 'phone')}
+                onChange={(value) => setNested('contact', 'phone', value)}
+                placeholder="9665XXXXXXXX"
+                ltr
+              />
+              <TextField
+                label="واتساب"
+                value={nested('contact', 'whatsapp')}
+                onChange={(value) => setNested('contact', 'whatsapp', value)}
+                placeholder="9665XXXXXXXX"
+                ltr
+                hint="يستخدم للأزرار اللي تفتح محادثة مباشرة."
+              />
+              <TextField
+                label="البريد الإلكتروني"
+                value={nested('contact', 'email')}
+                onChange={(value) => setNested('contact', 'email', value)}
+                placeholder="name@example.com"
+                ltr
+              />
+              <TextField
+                label="العنوان"
+                value={nested('contact', 'address')}
+                onChange={(value) => setNested('contact', 'address', value)}
+                placeholder="المدينة، الحي"
+              />
+            </div>
+            <div
+              className="grid gap-4 border-t border-[#E2E8F0] pt-5 sm:grid-cols-2"
+              style={{ borderColor: '#E2E8F0' }}
+            >
+              {(['instagram', 'twitter', 'facebook', 'tiktok', 'snapchat'] as const).map(
+                (platform) => (
+                  <TextField
+                    key={platform}
+                    label={
+                      {
+                        instagram: 'إنستغرام',
+                        twitter: 'إكس (تويتر)',
+                        facebook: 'فيسبوك',
+                        tiktok: 'تيك توك',
+                        snapchat: 'سناب شات',
+                      }[platform]
+                    }
+                    value={nested('socialLinks', platform)}
+                    onChange={(value) => setNested('socialLinks', platform, value)}
+                    placeholder="رابط الحساب أو @اسم_الحساب"
+                    ltr
+                  />
+                )
+              )}
+            </div>
+          </Section>
+
+          <Section
+            icon={Clock3}
+            title="ساعات العمل"
+            subtitle="أيام وأوقات الدوام"
+            badge={
+              <span
+                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+              >
+                {asList(structure.hours).length}
+              </span>
+            }
+          >
+            <Repeater
+              items={asList(structure.hours)}
+              onChange={(next) => setKey('hours', next)}
+              singular="يوم"
+              titleKeys={['day']}
+              blank={() => ({ day: '', time: '' })}
+              max={14}
+              fields={[
+                { keys: ['day'], label: 'اليوم', placeholder: 'السبت – الخميس', half: true },
+                { keys: ['time'], label: 'الوقت', placeholder: '9 ص – 10 م', half: true },
+              ]}
+            />
+          </Section>
+
+          <Section
+            icon={Users}
+            title="الفريق"
+            subtitle="عرّف الزائر بمن يقف خلف النشاط"
+            badge={
+              <span
+                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+              >
+                {asList(structure.team).length}
+              </span>
+            }
+          >
+            <Repeater
+              items={asList(structure.team)}
+              onChange={(next) => setKey('team', next)}
+              singular="عضو"
+              titleKeys={['name']}
+              blank={() => ({ name: '', role: '' })}
+              max={30}
+              fields={[
+                { keys: ['name'], label: 'الاسم', half: true },
+                { keys: ['role'], label: 'المسمى', half: true },
+                { keys: ['bio'], label: 'نبذة', kind: 'textarea' },
+                IMAGE,
+              ]}
+            />
+          </Section>
+
+          <Section
+            icon={Quote}
+            title="آراء العملاء"
+            subtitle="ثقة الزوار تبدأ من كلام عملائك"
+            badge={
+              <span
+                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+              >
+                {asList(structure.testimonials).length}
+              </span>
+            }
+          >
+            <Repeater
+              items={asList(structure.testimonials)}
+              onChange={(next) => setKey('testimonials', next)}
+              singular="رأي"
+              titleKeys={['name']}
+              blank={() => ({ name: '', quote: '' })}
+              max={30}
+              fields={[
+                { keys: ['name'], label: 'اسم العميل' },
+                { keys: ['quote'], label: 'التعليق', kind: 'textarea' },
+              ]}
+            />
+          </Section>
+
+          <Section
+            icon={HelpCircle}
+            title="الأسئلة الشائعة"
+            subtitle="أجب مسبقًا عن أكثر ما يُسأل"
+            badge={
+              <span
+                className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
+                style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+              >
+                {asList(structure.faq).length}
+              </span>
+            }
+          >
+            <Repeater
+              items={asList(structure.faq)}
+              onChange={(next) => setKey('faq', next)}
+              singular="سؤال"
+              titleKeys={['question']}
+              blank={() => ({ question: '', answer: '' })}
+              max={30}
+              fields={[
+                { keys: ['question'], label: 'السؤال' },
+                { keys: ['answer'], label: 'الجواب', kind: 'textarea' },
+              ]}
+            />
+          </Section>
+
+          {isBooking && (
+            <Section
+              icon={Clock3}
+              title="خطوات الحجز"
+              subtitle="اشرح للعميل كيف يتم تأكيد موعده"
+              badge={
+                <span
+                  className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
+                  style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
+                >
+                  {asList(structure.steps).length}
+                </span>
+              }
+            >
+              <Repeater
+                items={asList(structure.steps)}
+                onChange={(next) => setKey('steps', next)}
+                singular="خطوة"
+                titleKeys={['title']}
+                blank={() => ({ title: '', description: '' })}
+                max={12}
+                fields={[
+                  { keys: ['title'], label: 'عنوان الخطوة', placeholder: 'مثال: اختر الخدمة والوقت المناسب' },
+                  { keys: ['description'], label: 'تفاصيل الخطوة', kind: 'textarea' },
+                ]}
+              />
+            </Section>
+          )}
+
+          {isPortfolio && (
+            <>
+              <Section icon={Award} title="المهارات والإنجازات" subtitle="تظهر كوسوم وإحصائيات في صفحة البورتفوليو">
+                <TagsField
+                  label="مهاراتك"
+                  values={
+                    Array.isArray(structure.skills)
+                      ? (structure.skills as unknown[]).filter(
+                          (value): value is string => typeof value === 'string'
+                        )
+                      : []
+                  }
+                  onChange={(values) => setKey('skills', values)}
+                  placeholder="مثال: تصميم الهوية"
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <TextField
+                    label="عدد المشاريع المنجزة"
+                    value={text('projectsCount')}
+                    onChange={(value) => setKey('projectsCount', value)}
+                    placeholder="مثال: +45 مشروع ناجح"
+                  />
+                  <TextField
+                    label="اقتباس أو فلسفة العمل"
+                    value={text('quote')}
+                    onChange={(value) => setKey('quote', value)}
+                    placeholder="مثال: التصميم الجيد يجمع بين الجمال والوظيفة"
                   />
                 </div>
               </Section>
-            )}
-
-            {/* 4. Products / Items / Questions / Services Collection Section */}
-            {showProductsCollection && (
               <Section
-                icon={LayoutGrid}
-                title={collection.title}
-                subtitle={`أضف ${collection.singular} وعدّله ورتّبه`}
-                defaultOpen
+                icon={Briefcase}
+                title="الخبرات والشهادات"
+                subtitle="مسيرتك المهنية واعتماداتك"
                 badge={
                   <span
                     className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
                     style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
                   >
-                    {list.length}
+                    {asList(structure.experience).length +
+                      asList(structure.certifications).length}
                   </span>
                 }
               >
-                {isSurvey && (
-                  <div
-                    className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] p-3.5"
-                    style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }}
-                  >
-                    <div>
-                      <p className="text-xs font-black text-[#1E3A8A]" style={{ color: '#1E3A8A' }}>
-                        أنواع الأسئلة المتنوعة المتاحة في الاستبيان:
-                      </p>
-                      <p className="mt-0.5 text-[11px] font-bold text-[#1D4ED8]" style={{ color: '#1D4ED8' }}>
-                        اختيار واحد · اختيار متعدد · تقييم بالنجوم (1-5) · مقياس توصية رقمي (1-10) · نعم/لا · سؤال نصي مفتوح
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setKey(collection.key, [
-                          ...list,
-                          ...(DEFAULT_SURVEY_QUESTIONS as unknown as Json[]),
-                        ]);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#1D4ED8] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#1E40AF]"
-                      style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-                      data-testid="button-insert-preset-survey-questions"
-                    >
-                      <Sparkles size={14} /> إدراج 5 أسئلة متنوعة جاهزة
-                    </button>
-                  </div>
-                )}
-                <Repeater
-                  items={list}
-                  onChange={(next) => setKey(collection.key, next)}
-                  fields={collection.fields}
-                  singular={collection.singular}
-                  titleKeys={collection.fields[0].keys}
-                  blank={() =>
-                    isSurvey
-                      ? {
-                          name: '',
-                          duration: 'choice',
-                          category: 'ممتاز، جيد جداً، جيد، مقبول',
-                          description: '',
-                        }
-                      : { [collection.fields[0].keys[0]]: '' }
-                  }
-                  imageNote={imageNote}
-                />
-              </Section>
-            )}
-
-            {/* 5. Contact & Working Hours Section */}
-            {showContactAndHours && (
-              <>
-                <Section
-                  icon={Phone}
-                  title="التواصل"
-                  subtitle="الأرقام والعنوان وحسابات التواصل الاجتماعي"
-                  defaultOpen={focusedSection === 'contact'}
-                >
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <TextField
-                      label="الجوال"
-                      value={nested('contact', 'phone')}
-                      onChange={(value) => setNested('contact', 'phone', value)}
-                      placeholder="9665XXXXXXXX"
-                      ltr
-                    />
-                    <TextField
-                      label="واتساب"
-                      value={nested('contact', 'whatsapp')}
-                      onChange={(value) => setNested('contact', 'whatsapp', value)}
-                      placeholder="9665XXXXXXXX"
-                      ltr
-                      hint="يستخدم للأزرار اللي تفتح محادثة مباشرة."
-                    />
-                    <TextField
-                      label="البريد الإلكتروني"
-                      value={nested('contact', 'email')}
-                      onChange={(value) => setNested('contact', 'email', value)}
-                      placeholder="name@example.com"
-                      ltr
-                    />
-                    <TextField
-                      label="العنوان"
-                      value={nested('contact', 'address')}
-                      onChange={(value) => setNested('contact', 'address', value)}
-                      placeholder="المدينة، الحي"
-                    />
-                  </div>
-                  <div
-                    className="grid gap-4 border-t border-[#E2E8F0] pt-5 sm:grid-cols-2"
-                    style={{ borderColor: '#E2E8F0' }}
-                  >
-                    {(['instagram', 'twitter', 'facebook', 'tiktok', 'snapchat'] as const).map(
-                      (platform) => (
-                        <TextField
-                          key={platform}
-                          label={
-                            {
-                              instagram: 'إنستغرام',
-                              twitter: 'إكس (تويتر)',
-                              facebook: 'فيسبوك',
-                              tiktok: 'تيك توك',
-                              snapchat: 'سناب شات',
-                            }[platform]
-                          }
-                          value={nested('socialLinks', platform)}
-                          onChange={(value) => setNested('socialLinks', platform, value)}
-                          placeholder="رابط الحساب أو @اسم_الحساب"
-                          ltr
-                        />
-                      )
-                    )}
-                  </div>
-                </Section>
-
-                <Section
-                  icon={Clock3}
-                  title="ساعات العمل"
-                  subtitle="أيام وأوقات الدوام"
-                  defaultOpen={focusedSection === 'contact'}
-                  badge={
-                    <span
-                      className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
-                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    >
-                      {asList(structure.hours).length}
-                    </span>
-                  }
-                >
-                  <Repeater
-                    items={asList(structure.hours)}
-                    onChange={(next) => setKey('hours', next)}
-                    singular="يوم"
-                    titleKeys={['day']}
-                    blank={() => ({ day: '', time: '' })}
-                    max={14}
-                    fields={[
-                      { keys: ['day'], label: 'اليوم', placeholder: 'السبت – الخميس', half: true },
-                      { keys: ['time'], label: 'الوقت', placeholder: '9 ص – 10 م', half: true },
-                    ]}
-                  />
-                </Section>
-              </>
-            )}
-
-            {/* 6. Extra Content Sections (Team, Testimonials, FAQ, Booking Steps, Portfolio Skills) */}
-            {showExtraContentSections && (
-              <>
-                <Section
-                  icon={Users}
-                  title="الفريق"
-                  subtitle="عرّف الزائر بمن يقف خلف النشاط"
-                  badge={
-                    <span
-                      className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
-                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    >
-                      {asList(structure.team).length}
-                    </span>
-                  }
-                >
-                  <Repeater
-                    items={asList(structure.team)}
-                    onChange={(next) => setKey('team', next)}
-                    singular="عضو"
-                    titleKeys={['name']}
-                    blank={() => ({ name: '', role: '' })}
-                    max={30}
-                    fields={[
-                      { keys: ['name'], label: 'الاسم', half: true },
-                      { keys: ['role'], label: 'المسمى', half: true },
-                      { keys: ['bio'], label: 'نبذة', kind: 'textarea' },
-                      IMAGE,
-                    ]}
-                  />
-                </Section>
-
-                <Section
-                  icon={Quote}
-                  title="آراء العملاء"
-                  subtitle="ثقة الزوار تبدأ من كلام عملائك"
-                  badge={
-                    <span
-                      className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
-                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    >
-                      {asList(structure.testimonials).length}
-                    </span>
-                  }
-                >
-                  <Repeater
-                    items={asList(structure.testimonials)}
-                    onChange={(next) => setKey('testimonials', next)}
-                    singular="رأي"
-                    titleKeys={['name']}
-                    blank={() => ({ name: '', quote: '' })}
-                    max={30}
-                    fields={[
-                      { keys: ['name'], label: 'اسم العميل' },
-                      { keys: ['quote'], label: 'التعليق', kind: 'textarea' },
-                    ]}
-                  />
-                </Section>
-
-                <Section
-                  icon={HelpCircle}
-                  title="الأسئلة الشائعة"
-                  subtitle="أجب مسبقًا عن أكثر ما يُسأل"
-                  badge={
-                    <span
-                      className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
-                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    >
-                      {asList(structure.faq).length}
-                    </span>
-                  }
-                >
-                  <Repeater
-                    items={asList(structure.faq)}
-                    onChange={(next) => setKey('faq', next)}
-                    singular="سؤال"
-                    titleKeys={['question']}
-                    blank={() => ({ question: '', answer: '' })}
-                    max={30}
-                    fields={[
-                      { keys: ['question'], label: 'السؤال' },
-                      { keys: ['answer'], label: 'الجواب', kind: 'textarea' },
-                    ]}
-                  />
-                </Section>
-
-                {isBooking && (
-                  <Section
-                    icon={Clock3}
-                    title="خطوات الحجز"
-                    subtitle="اشرح للعميل كيف يتم تأكيد موعده"
-                    badge={
-                      <span
-                        className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
-                        style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                      >
-                        {asList(structure.steps).length}
-                      </span>
-                    }
-                  >
-                    <Repeater
-                      items={asList(structure.steps)}
-                      onChange={(next) => setKey('steps', next)}
-                      singular="خطوة"
-                      titleKeys={['title']}
-                      blank={() => ({ title: '', description: '' })}
-                      max={12}
-                      fields={[
-                        { keys: ['title'], label: 'عنوان الخطوة', placeholder: 'مثال: اختر الخدمة والوقت المناسب' },
-                        { keys: ['description'], label: 'تفاصيل الخطوة', kind: 'textarea' },
-                      ]}
-                    />
-                  </Section>
-                )}
-
-                {isPortfolio && (
-                  <>
-                    <Section icon={Award} title="المهارات والإنجازات" subtitle="تظهر كوسوم وإحصائيات في صفحة البورتفوليو">
-                      <TagsField
-                        label="مهاراتك"
-                        values={
-                          Array.isArray(structure.skills)
-                            ? (structure.skills as unknown[]).filter(
-                                (value): value is string => typeof value === 'string'
-                              )
-                            : []
-                        }
-                        onChange={(values) => setKey('skills', values)}
-                        placeholder="مثال: تصميم الهوية"
-                      />
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <TextField
-                          label="عدد المشاريع المنجزة"
-                          value={text('projectsCount')}
-                          onChange={(value) => setKey('projectsCount', value)}
-                          placeholder="مثال: +45 مشروع ناجح"
-                        />
-                        <TextField
-                          label="اقتباس أو فلسفة العمل"
-                          value={text('quote')}
-                          onChange={(value) => setKey('quote', value)}
-                          placeholder="مثال: التصميم الجيد يجمع بين الجمال والوظيفة"
-                        />
-                      </div>
-                    </Section>
-                    <Section
-                      icon={Briefcase}
-                      title="الخبرات والشهادات"
-                      subtitle="مسيرتك المهنية واعتماداتك"
-                      badge={
-                        <span
-                          className="rounded-lg border border-[#CBD5E1] bg-[#F8FAFC] px-2.5 py-1 font-mono text-xs font-black text-[#0F172A]"
-                          style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                        >
-                          {asList(structure.experience).length +
-                            asList(structure.certifications).length}
-                        </span>
-                      }
-                    >
-                      <p
-                        className="text-xs font-extrabold text-[#0F172A]"
-                        style={{ color: '#0F172A' }}
-                      >
-                        الخبرات العملية
-                      </p>
-                      <Repeater
-                        items={asList(structure.experience)}
-                        onChange={(next) => setKey('experience', next)}
-                        singular="خبرة"
-                        titleKeys={['role']}
-                        blank={() => ({ role: '', company: '' })}
-                        max={30}
-                        fields={[
-                          { keys: ['role'], label: 'المسمى', half: true },
-                          { keys: ['company'], label: 'الجهة', half: true },
-                          { keys: ['period'], label: 'الفترة', placeholder: '2021 – 2024', half: true },
-                          { keys: ['description'], label: 'الوصف', kind: 'textarea' },
-                        ]}
-                      />
-                      <p
-                        className="border-t border-[#E2E8F0] pt-5 text-xs font-extrabold text-[#0F172A]"
-                        style={{ borderColor: '#E2E8F0', color: '#0F172A' }}
-                      >
-                        الشهادات
-                      </p>
-                      <Repeater
-                        items={asList(structure.certifications)}
-                        onChange={(next) => setKey('certifications', next)}
-                        singular="شهادة"
-                        titleKeys={['name']}
-                        blank={() => ({ name: '', issuer: '' })}
-                        max={30}
-                        fields={[
-                          { keys: ['name'], label: 'اسم الشهادة' },
-                          { keys: ['issuer'], label: 'الجهة المانحة', half: true },
-                          { keys: ['year'], label: 'السنة', half: true },
-                        ]}
-                      />
-                    </Section>
-                  </>
-                )}
-              </>
-            )}
-
-            {/* 7. Settings: Custom Slug, Service Type, and Delete Service */}
-            {showSettingsFields && (
-              <>
-                <Section
-                  icon={Type}
-                  title="إعدادات الخدمة والرابط المخصص"
-                  subtitle="اسم الخدمة، الرابط المخصص (Username)، ونوع القالب"
-                  defaultOpen
-                >
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <TextField
-                      label="اسم الموقع *"
-                      value={draft.siteName}
-                      onChange={(value) => setDraft((current) => ({ ...current, siteName: value }))}
-                      max={80}
-                      placeholder="مثال: متجر النور"
-                    />
-                    <TextField
-                      label="الرابط المخصص للموقع (Username)"
-                      value={draft.username}
-                      onChange={(value) => setDraft((current) => ({ ...current, username: value }))}
-                      max={32}
-                      ltr
-                      placeholder="al-noor-store"
-                      hint={siteUrl(slugifyUsername(draft.username.trim() || draft.siteName.trim()))}
-                    />
-                  </div>
-
-                  <Field label="نوع النشاط / القالب المخصص">
-                    <select
-                      value={draft.templateId}
-                      onChange={(e) =>
-                        setDraft((current) => ({ ...current, templateId: e.target.value }))
-                      }
-                      className={inputClass}
-                      style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                    >
-                      <optgroup label="1. خدمات المواقع والواجهات الرقمية">
-                        <option value="store">متجر إلكتروني وسلة طلبات (Store)</option>
-                        <option value="restaurant">مطعم أو مقهى ومنيو رقمي (Restaurant)</option>
-                        <option value="services">موقع شركة أو مؤسسة خدمية (Corporate)</option>
-                        <option value="portfolio">صفحة شخصية ومعرض أعمال (Portfolio)</option>
-                        <option value="vcard">بطاقة تواصل رقمية وروابط (Bio Links)</option>
-                      </optgroup>
-                      <optgroup label="2. الخدمات التفاعلية والأدوات الذكية">
-                        <option value="survey">استبيان واستطلاع رأي تفاعلي (Survey)</option>
-                        <option value="booking">نظام حجز مواعيد واستشارات (Booking)</option>
-                        <option value="rsvp">دعوة فعالية وتأكيد حضور (RSVP)</option>
-                        <option value="invoice">باقات الأسعار وحاسبة عروض (Packages)</option>
-                      </optgroup>
-                    </select>
-                  </Field>
-                </Section>
-
-                <Card
-                  className="flex flex-wrap items-center justify-between gap-4 border border-[#FECDD3] bg-[#FFF1F2] p-5"
-                  style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#0F172A' }}
-                >
-                  <div>
-                    <p className="text-sm font-black text-[#BE123C]" style={{ color: '#BE123C' }}>
-                      حذف الموقع نهائياً
-                    </p>
-                    <p className="mt-0.5 text-xs font-medium text-[#881337]" style={{ color: '#881337' }}>
-                      سيتم حذف هذا الموقع من قاعدة البيانات وإلغاء نشر رابطه العام.
-                    </p>
-                  </div>
-                  {confirmDeleteSite ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={deleteSite.isPending}
-                        onClick={() => {
-                          deleteSite.mutate(initial.username, {
-                            onSuccess: () => {
-                              if (onDeleted) {
-                                onDeleted();
-                              } else {
-                                navigate('/dashboard');
-                              }
-                            },
-                          });
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-[#BE123C] px-4 py-2 text-xs font-bold text-white hover:bg-[#9F1239]"
-                        style={{ backgroundColor: '#BE123C', color: '#FFFFFF' }}
-                        data-testid="button-confirm-delete-site"
-                      >
-                        <Trash2 size={14} />
-                        <span>{deleteSite.isPending ? 'جارٍ الحذف...' : 'نعم، احذف الموقع نهائياً'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteSite(false)}
-                        className="rounded-xl border border-[#CBD5E1] bg-white px-3 py-2 text-xs font-bold text-[#334155]"
-                        style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#334155' }}
-                      >
-                        إلغاء
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteSite(true)}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#FECDD3] bg-white px-4 py-2 text-xs font-bold text-[#BE123C] hover:bg-[#FFE4E6]"
-                      style={{ backgroundColor: '#FFFFFF', borderColor: '#FECDD3', color: '#BE123C' }}
-                      data-testid="button-delete-site"
-                    >
-                      <Trash2 size={14} />
-                      <span>حذف الموقع</span>
-                    </button>
-                  )}
-                </Card>
-              </>
-            )}
-
-            {/* Focused Mode Bottom Action Footer */}
-            {onBackToChat && (
-              <div
-                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#CBD5E1] bg-white p-4 shadow-sm"
-                style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
-              >
-                <button
-                  type="button"
-                  onClick={() => onBackToChat()}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#CBD5E1] bg-[#F8FAFC] px-4 py-2.5 text-xs font-extrabold text-[#0F172A] hover:bg-[#E2E8F0]"
-                  style={{ backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', color: '#0F172A' }}
-                >
-                  <ArrowRight size={15} />
-                  <span>العودة للمحادثة</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => doSave(true)}
-                  disabled={save.isPending}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#1D4ED8] px-6 py-2.5 text-xs font-extrabold text-white shadow-sm hover:bg-[#1E40AF] disabled:opacity-50"
-                  style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
-                  data-testid="button-footer-save-and-return"
-                >
-                  {save.isPending ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
-                  <span>{dirty ? 'حفظ التعديلات والعودة للمحادثة' : 'انتهيت — العودة للمحادثة'}</span>
-                </button>
-              </div>
-            )}
-          </fieldset>
-
-          {!focusedSection && (
-            <aside className="hidden w-[348px] shrink-0 xl:block" aria-label="معاينة">
-              <div
-                className="sticky top-28 rounded-2xl border border-[#CBD5E1] bg-white p-4 shadow-md"
-                style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
-              >
                 <p
-                  className="mb-3 flex items-center gap-2 text-xs font-black text-[#0F172A]"
+                  className="text-xs font-extrabold text-[#0F172A]"
                   style={{ color: '#0F172A' }}
                 >
-                  <Smartphone size={16} style={{ color: '#1D4ED8' }} /> معاينة الموقع الحية
+                  الخبرات العملية
                 </p>
-                <div
-                  className="mx-auto h-[600px] w-[308px] overflow-hidden rounded-[40px] border-[8px] border-[#0B132B] bg-white shadow-xl"
-                  style={{ backgroundColor: '#FFFFFF', borderColor: '#0B132B' }}
-                >
-                  <iframe
-                    key={previewKey}
-                    src={`${url}?_=${previewKey}`}
-                    title="معاينة الموقع"
-                    className="size-full"
-                    loading="lazy"
-                  />
-                </div>
+                <Repeater
+                  items={asList(structure.experience)}
+                  onChange={(next) => setKey('experience', next)}
+                  singular="خبرة"
+                  titleKeys={['role']}
+                  blank={() => ({ role: '', company: '' })}
+                  max={30}
+                  fields={[
+                    { keys: ['role'], label: 'المسمى', half: true },
+                    { keys: ['company'], label: 'الجهة', half: true },
+                    { keys: ['period'], label: 'الفترة', placeholder: '2021 – 2024', half: true },
+                    { keys: ['description'], label: 'الوصف', kind: 'textarea' },
+                  ]}
+                />
                 <p
-                  className="mt-3 text-center text-xs font-medium text-[#64748B]"
-                  style={{ color: '#64748B' }}
+                  className="border-t border-[#E2E8F0] pt-5 text-xs font-extrabold text-[#0F172A]"
+                  style={{ borderColor: '#E2E8F0', color: '#0F172A' }}
                 >
-                  تتحدث المعاينة فورياً بعد كل حفظ.
+                  الشهادات
                 </p>
-              </div>
-            </aside>
+                <Repeater
+                  items={asList(structure.certifications)}
+                  onChange={(next) => setKey('certifications', next)}
+                  singular="شهادة"
+                  titleKeys={['name']}
+                  blank={() => ({ name: '', issuer: '' })}
+                  max={30}
+                  fields={[
+                    { keys: ['name'], label: 'اسم الشهادة' },
+                    { keys: ['issuer'], label: 'الجهة المانحة', half: true },
+                    { keys: ['year'], label: 'السنة', half: true },
+                  ]}
+                />
+              </Section>
+            </>
           )}
-        </div>
+
+          {/* Danger Zone: Delete Website from Database */}
+          <Card
+            className="flex flex-wrap items-center justify-between gap-4 border border-[#FECDD3] bg-[#FFF1F2] p-5"
+            style={{ backgroundColor: '#FFF1F2', borderColor: '#FECDD3', color: '#0F172A' }}
+          >
+            <div>
+              <p className="text-sm font-black text-[#BE123C]" style={{ color: '#BE123C' }}>
+                حذف الموقع نهائياً
+              </p>
+              <p className="mt-0.5 text-xs font-medium text-[#881337]" style={{ color: '#881337' }}>
+                سيتم حذف هذا الموقع من قاعدة البيانات وإلغاء نشر رابطه العام.
+              </p>
+            </div>
+            {confirmDeleteSite ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={deleteSite.isPending}
+                  onClick={() => {
+                    deleteSite.mutate(initial.username, {
+                      onSuccess: () => navigate('/dashboard/services'),
+                    });
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#BE123C] px-4 py-2 text-xs font-bold text-white hover:bg-[#9F1239]"
+                  style={{ backgroundColor: '#BE123C', color: '#FFFFFF' }}
+                  data-testid="button-confirm-delete-site"
+                >
+                  <Trash2 size={14} />
+                  <span>{deleteSite.isPending ? 'جارٍ الحذف...' : 'نعم، احذف الموقع نهائياً'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteSite(false)}
+                  className="rounded-xl border border-[#CBD5E1] bg-white px-3 py-2 text-xs font-bold text-[#334155]"
+                  style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#334155' }}
+                >
+                  إلغاء
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteSite(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#FECDD3] bg-white px-4 py-2 text-xs font-bold text-[#BE123C] hover:bg-[#FFE4E6]"
+                style={{ backgroundColor: '#FFFFFF', borderColor: '#FECDD3', color: '#BE123C' }}
+                data-testid="button-delete-site"
+              >
+                <Trash2 size={14} />
+                <span>حذف الموقع</span>
+              </button>
+            )}
+          </Card>
+        </fieldset>
+
+        <aside className="hidden w-[340px] shrink-0 xl:block" aria-label="معاينة">
+          <div className="sticky top-36">
+            <p
+              className="mb-3 flex items-center gap-2 text-xs font-black text-[#0F172A]"
+              style={{ color: '#0F172A' }}
+            >
+              <Smartphone size={16} style={{ color: '#1D4ED8' }} /> معاينة الموقع الحية
+            </p>
+            <div
+              className="mx-auto h-[620px] w-[312px] overflow-hidden rounded-[44px] border-[10px] border-[#0B132B] bg-white shadow-2xl"
+              style={{ backgroundColor: '#FFFFFF', borderColor: '#0B132B' }}
+            >
+              <iframe
+                key={previewKey}
+                src={`${url}?_=${previewKey}`}
+                title="معاينة الموقع"
+                className="size-full"
+                loading="lazy"
+              />
+            </div>
+            <p
+              className="mt-3 text-center text-xs font-medium text-[#64748B]"
+              style={{ color: '#64748B' }}
+            >
+              تتحدث المعاينة فورياً بعد كل حفظ.
+            </p>
+          </div>
+        </aside>
+      </div>
       )}
     </div>
   );
 }
 
-export interface SiteEditorProps {
-  forcedUsername?: string;
-  forcedTab?: 'editor' | 'results';
-  focusedSection?: StudioActivePanel;
-  onBackToChat?: (savedSectionLabel?: string) => void;
-  onDeleted?: () => void;
-  hideSiteSwitcher?: boolean;
-}
-
-export default function SiteEditor({
-  forcedUsername,
-  forcedTab,
-  focusedSection,
-  onBackToChat,
-  onDeleted,
-  hideSiteSwitcher = false,
-}: SiteEditorProps = {}) {
+export default function SiteEditor() {
   const accountQuery = useAccount();
   const [selectedUsername, setSelectedUsername] = useState<string | undefined>(() =>
-    forcedUsername || getActiveSiteUsername() || undefined
+    getActiveSiteUsername()
   );
-  useEffect(() => {
-    if (forcedUsername) {
-      setSelectedUsername(forcedUsername);
-    }
-  }, [forcedUsername]);
-
-  const effectiveUsername = forcedUsername || selectedUsername;
-  const query = useSiteDocument(effectiveUsername);
+  const query = useSiteDocument(selectedUsername);
   const [epoch, setEpoch] = useState(0);
 
   const allSites = accountQuery.data?.websites ?? (accountQuery.data?.website ? [accountQuery.data.website] : []);
@@ -2518,18 +2255,18 @@ export default function SiteEditor({
           أنشئ موقعك أولاً من قسم الخدمات ثم ارجع هنا لإضافة المحتوى والصور وتخصيص المظهر.
         </p>
         <Link
-          href="/dashboard"
+          href="/dashboard/services"
           className="mt-6 inline-flex h-11 items-center rounded-xl bg-[#1D4ED8] px-5 text-sm font-bold text-white transition-colors hover:bg-[#1E40AF]"
           style={{ backgroundColor: '#1D4ED8', color: '#FFFFFF' }}
         >
-          رجوع إلى الاستوديو
+          رجوع إلى خدماتي
         </Link>
       </Card>
     );
   }
   return (
     <div className="space-y-4">
-      {!hideSiteSwitcher && !focusedSection && allSites.length > 1 && (
+      {allSites.length > 1 && (
         <Card
           className="flex flex-wrap items-center justify-between gap-3 border border-[#CBD5E1] bg-white px-4 py-3"
           style={{ backgroundColor: '#FFFFFF', borderColor: '#CBD5E1' }}
@@ -2574,12 +2311,8 @@ export default function SiteEditor({
         </Card>
       )}
       <EditorForm
-        key={`${query.data.id}:${epoch}:${focusedSection || 'full'}`}
+        key={`${query.data.id}:${epoch}`}
         initial={query.data}
-        forcedTab={forcedTab}
-        focusedSection={focusedSection}
-        onBackToChat={onBackToChat}
-        onDeleted={onDeleted}
         onReload={() => {
           void query.refetch().then(() => setEpoch((value) => value + 1));
         }}

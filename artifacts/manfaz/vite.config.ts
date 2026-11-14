@@ -1,64 +1,10 @@
 import path from 'path';
-import type { IncomingMessage, ServerResponse } from 'http';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type Plugin } from 'vite';
 
-// Prevent Vite from exiting when spawned with closed stdin during pre-warming
-process.env.CI = 'true';
-
-const rawPort = Number(process.env.PORT || 3000);
-const nginxPort = Number(process.env.NGINX_PORT || 8080);
-const port = !rawPort || Number.isNaN(rawPort) || rawPort === nginxPort ? 3000 : rawPort;
+const port = Number(process.env.PORT || 3000);
 const basePath = process.env.BASE_PATH || '/';
-
-function handleDevApiRequest(req: IncomingMessage, res: ServerResponse, next: () => void): void {
-  const url = req.url?.split('?')[0] || '';
-  if (!url.startsWith('/api/') && url !== '/api') {
-    next();
-    return;
-  }
-
-  const sendJson = (status: number, data: unknown) => {
-    res.statusCode = status;
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.end(JSON.stringify(data));
-  };
-
-  if (url === '/api/healthz' || url === '/api/health') {
-    sendJson(200, { status: 'ok' });
-    return;
-  }
-
-  if (url === '/api/public/settings/whatsapp' && req.method === 'GET') {
-    sendJson(200, {
-      whatsappNumber: process.env.VITE_WHATSAPP_NUMBER || '966500000000',
-      frontendUrl: process.env.FRONTEND_URL || `http://localhost:${port}`,
-    });
-    return;
-  }
-
-  if (/^\/api\/public\/websites\/[^/]+\/visit$/.test(url) && req.method === 'POST') {
-    sendJson(200, { ok: true });
-    return;
-  }
-
-  // Return 200 JSON standalone payload so client hooks fall back to local persistence
-  // cleanly without triggering browser 404 network console errors.
-  sendJson(200, { standalone: true });
-}
-
-function devApiFallbackPlugin(): Plugin {
-  return {
-    name: 'dev-api-fallback',
-    configureServer(server) {
-      server.middlewares.use(handleDevApiRequest);
-    },
-    configurePreviewServer(server) {
-      server.middlewares.use(handleDevApiRequest);
-    },
-  };
-}
 
 function oklchToSrgbCss(match: string, inner: string): string {
   const [coordsPart, alphaPart] = inner.trim().split('/').map((s) => s.trim());
@@ -136,7 +82,6 @@ function legacyCssColorCompat(): Plugin {
 export default defineConfig({
   base: basePath,
   plugins: [
-    devApiFallbackPlugin(),
     react(),
     tailwindcss(),
     legacyCssColorCompat(),

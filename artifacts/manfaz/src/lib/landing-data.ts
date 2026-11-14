@@ -340,16 +340,7 @@ export interface StudioPresetItem {
 }
 
 export interface StudioPresetConfig {
-  id:
-    | 'store'
-    | 'restaurant'
-    | 'booking'
-    | 'services'
-    | 'portfolio'
-    | 'survey'
-    | 'rsvp'
-    | 'invoice'
-    | 'vcard';
+  id: 'store' | 'restaurant' | 'booking' | 'services' | 'survey' | 'rsvp' | 'invoice' | 'vcard';
   label: string;
   badge: string;
   defaultTitle: string;
@@ -616,38 +607,6 @@ export const STUDIO_PRESETS: Record<StudioPresetConfig['id'], StudioPresetConfig
         meta: 'مقالات أسبوعية في هندسة البرمجيات',
         price: 'متابعة',
         tag: 'تواصل',
-      },
-    ],
-  },
-  portfolio: {
-    id: 'portfolio',
-    label: 'صفحة شخصية / أعمال',
-    badge: 'قالب البورتفوليو والسيرة',
-    defaultTitle: 'استوديو ريم القحطاني للتصميم المعماري',
-    subtitle: 'معرض المشاريع الهندسية، الهويات البصرية، والخبرات الاحترافية',
-    cta: 'استعراض معرض الأعمال',
-    kpiLabel: 'طلبات المشاريع',
-    kpiValue: '+64 مشروعاً',
-    growthDelta: '+48% تواصل مباشر',
-    sparkline: [44, 53, 62, 71, 80, 88, 97],
-    items: [
-      {
-        name: 'تصميم الهوية المعمارية — برج العليا',
-        meta: 'تصميم داخلي وواجهات · الرياض 2026',
-        price: 'مشروع مكتمل',
-        tag: 'معرض أعمال',
-      },
-      {
-        name: 'تطوير تجربة المستخدم لمنصة مالية',
-        meta: 'نظام تصميم متكامل · واجهات ويب وتطبيق',
-        price: 'دراسة حالة',
-        tag: 'UI / UX',
-      },
-      {
-        name: 'حجز جلسة استشارة أو طلب عرض فني',
-        meta: 'تواصل مباشر لتنفيذ المشاريع الجديدة',
-        price: 'متاح الآن',
-        tag: 'تعاقد',
       },
     ],
   },

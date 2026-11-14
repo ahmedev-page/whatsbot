@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AiCreate, AiOp } from '@/lib/studio';
+import type { AiCreate, AiOp, PlanUsage } from '@/lib/studio';
 // Shadows the global on purpose: every storage call below becomes crash-proof.
 import { safeLocalStorage as localStorage } from '@/lib/safe-storage';
 
@@ -65,6 +65,8 @@ export interface AccountWebsite {
   visitsToday: number;
   visitsTotal: number;
   submissionsCount?: number;
+  // Paused services stay in the account but are hidden from visitors.
+  published?: boolean;
 }
 
 export interface Account {
@@ -75,6 +77,9 @@ export interface Account {
   createdAt: string;
   website: AccountWebsite | null;
   websites?: AccountWebsite[];
+  // From /api/me. Missing in a cached (offline) account — treat as unknown.
+  plan?: string;
+  usage?: PlanUsage;
 }
 
 export interface LoginChallenge {
@@ -1308,7 +1313,38 @@ export function useAccountMessages() {
   });
 }
 
+export interface ActivityEvent {
+  id: string;
+  type: 'submission' | 'published';
+  serviceName: string;
+  username: string;
+  templateId: string;
+  title: string;
+  detail: string;
+  at: string;
+}
+
+// Recent bookings / orders / responses / publishes across every service.
+export async function fetchActivity(): Promise<ActivityEvent[]> {
+  try {
+    return (await accountFetch<{ events: ActivityEvent[] }>('/api/me/activity')).events;
+  } catch {
+    return [];
+  }
+}
+
+export function useActivity() {
+  return useQuery({
+    queryKey: ['account-activity'],
+    queryFn: fetchActivity,
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
 export interface DashboardAiResponse {
+  // Present when the message names a different saved service than the open one.
+  switchTo?: { username: string; name: string };
   reply: string;
   ops: AiOp[];
   create: AiCreate | null;
@@ -1323,6 +1359,7 @@ export function askDashboardAssistant(input: {
   message: string;
   draft: { siteName: string; templateId: string; themeColor: string; structure: Record<string, unknown> } | null;
   history: Array<{ role: 'user' | 'bot'; text: string }>;
+  activeUsername?: string;
 }): Promise<DashboardAiResponse> {
   return accountFetch<DashboardAiResponse>('/api/me/assistant/ai', { method: 'POST', body: JSON.stringify(input) });
 }
@@ -1462,9 +1499,12 @@ const UPLOAD_ERRORS: Record<number, string> = {
   429: 'رفعت صورًا كثيرة خلال وقت قصير. حاول بعد قليل.',
 };
 
-export async function uploadImage(blob: Blob): Promise<string> {
+// `site` = the service the photo belongs to (its id). Without it the server falls
+// back to the most recently edited service, which is wrong in an account with
+// several services.
+export async function uploadImage(blob: Blob, site?: string): Promise<string> {
   const token = getSessionToken();
-  const response = await fetch(`${apiBase()}/api/me/uploads`, {
+  const response = await fetch(`${apiBase()}/api/me/uploads${site ? `?site=${encodeURIComponent(site)}` : ''}`, {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -1508,4 +1548,42 @@ export async function compressImage(file: File, maxSide = 1600, quality = 0.84):
   const jpeg = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
   if (jpeg && jpeg.size <= MAX_UPLOAD_BYTES) return jpeg;
   throw new ApiError(413, UPLOAD_ERRORS[413]);
+}
+
+// ---------------------------------------------------------------------------
+// Announcement cards (written by the platform admin) + pausing a service
+// ---------------------------------------------------------------------------
+
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  imageUrl: string | null;
+  linkUrl: string | null;
+  linkLabel: string;
+  theme: 'blue' | 'navy' | 'emerald' | 'violet' | 'amber' | 'rose';
+}
+
+export function useAnnouncements() {
+  return useQuery({
+    queryKey: ['account-announcements'],
+    queryFn: async () => {
+      try {
+        return (await accountFetch<{ announcements: Announcement[] }>('/api/me/announcements')).announcements;
+      } catch {
+        return [] as Announcement[]; // never let ads break the dashboard
+      }
+    },
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+export function trackAnnouncement(id: string, type: 'view' | 'click'): void {
+  accountFetch(`/api/me/announcements/${encodeURIComponent(id)}/event`, { method: 'POST', body: JSON.stringify({ type }) }).catch(() => undefined);
+}
+
+// Pause / resume a service. Resuming can be refused by the plan (403, with the reason).
+export function setServicePublished(username: string, published: boolean): Promise<{ published: boolean }> {
+  return accountFetch('/api/me/website/publish', { method: 'POST', body: JSON.stringify({ username, published }) });
 }

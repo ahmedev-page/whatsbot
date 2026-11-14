@@ -372,10 +372,5 @@ export async function customFetch<T = unknown>(
     throw new ApiError(response, errorData, requestInfo);
   }
 
-  const mediaType = getMediaType(response.headers);
-  if (mediaType === "text/html" && requestInfo.url.includes("/api/")) {
-    throw new ApiError(response, "API endpoint returned HTML fallback", requestInfo);
-  }
-
   return (await parseSuccessBody(response, responseType, requestInfo)) as T;
 }

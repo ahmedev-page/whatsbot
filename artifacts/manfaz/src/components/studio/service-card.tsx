@@ -7,6 +7,8 @@ import {
   Loader2,
   MoreHorizontal,
   Palette,
+  Pause,
+  Play,
   Plus,
   Trash2,
   Undo2,
@@ -49,6 +51,9 @@ export interface ServiceCardProps {
   onPreview: () => void;
   onDelete: () => void;
   onNotice: (text: string) => void;
+  // Pause/resume (saved services only). Paused = hidden from visitors, slot freed.
+  published?: boolean;
+  onTogglePublish?: () => void;
 }
 
 export function ServiceCard(props: ServiceCardProps) {
@@ -106,7 +111,8 @@ export function ServiceCard(props: ServiceCardProps) {
     if (!file || index < 0) return;
     setUploading(index);
     try {
-      const url = await uploadImage(await compressImage(file));
+      // Name the service so the photo is stored under (and accepted for) this one.
+      const url = await uploadImage(await compressImage(file), draft.id);
       setItem(index, { image: url });
     } catch (err) {
       props.onNotice(err instanceof Error ? err.message : 'تعذّر رفع الصورة. حاول مرة أخرى.');
@@ -322,6 +328,20 @@ export function ServiceCard(props: ServiceCardProps) {
                       className="size-4 accent-[#2563EB]"
                     />
                   </label>
+                  {props.onTogglePublish && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        props.onTogglePublish?.();
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs font-bold hover:bg-[#F1F5F9]"
+                      style={{ color: TEXT }}
+                    >
+                      {props.published === false ? <Play size={14} /> : <Pause size={14} />}
+                      {props.published === false ? 'إعادة نشر الخدمة' : 'إيقاف النشر مؤقتاً'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {

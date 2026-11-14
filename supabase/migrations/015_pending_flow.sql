@@ -11,3 +11,4 @@
 alter table public.users
   add column if not exists pending_flow text,
   add column if not exists pending_flow_data jsonb not null default '{}'::jsonb;
+

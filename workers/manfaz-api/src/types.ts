@@ -49,6 +49,11 @@ export interface UserRow {
   pending_flow: string | null;
   pending_flow_data: Record<string, unknown>;
   trusted_devices?: string[];
+  // Added by migration 018. Optional so the Worker still runs before it is applied.
+  plan?: string | null;
+  active_website_id?: string | null;
+  // Migration 019. Missing column => treated as true.
+  notify_orders?: boolean | null;
   blocked: boolean;
   created_at: string;
 }
@@ -63,6 +68,8 @@ export interface WebsiteRow {
   theme_color: string;
   json_structure: Record<string, unknown>;
   show_branding: boolean;
+  // Migration 019. Missing column => published.
+  is_published?: boolean;
   created_at: string;
   updated_at: string;
 }

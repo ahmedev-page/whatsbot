@@ -8,9 +8,15 @@ import {
   ensureUser,
   failProcessedMessage,
   finishProcessedMessage,
-  getLatestWebsite,
+  getActiveWebsite,
+  listWebsitesForUser,
+  setActiveWebsite,
+  setNotifyOrders,
+  setSubmissionStatus,
+  setWebsitePublished,
   getWebsiteByPublicId,
   getSettings,
+  getUserById,
   getVisitStats,
   addConversationMessage,
   getConversationMessages,
@@ -25,6 +31,29 @@ import {
   verifyLoginChallengeByCode,
 } from "./supabase";
 import type { Env, IncomingMessage, PendingImage, UserRow, WebsiteRow } from "./types";
+import {
+  STATUS_LABELS,
+  checkCanCreate,
+  checkCanPublish,
+  creatableTypes,
+  decideService,
+  formatDateAr,
+  listSubmissions,
+  resolveService,
+  submissionNouns,
+  supportsStatus,
+  toServiceRecord,
+  waLink,
+  wantsNewService,
+  wantsNotifyOff,
+  wantsNotifyOn,
+  wantsPause,
+  wantsResume,
+  wantsServiceList,
+  wantsSubmissions,
+  wantsSummary,
+  type ServiceRecord,
+} from "./service-registry";
 import { filterSupportedStructureFields, separateDashboardOnlyChanges, supportsCollectionImages, templateCollection, VALID_TEMPLATES } from "./site-schema";
 
 const templates = new Set<string>(VALID_TEMPLATES);
@@ -579,16 +608,26 @@ function itemAddTitle(label: string): string {
   return `إضافة ${label} ➕`;
 }
 
-async function sendMainMenu(env: Env, from: string, website: WebsiteRow): Promise<void> {
+async function sendMainMenu(env: Env, from: string, website: WebsiteRow, knownServiceCount?: number): Promise<void> {
+  const noun = submissionNouns(website.template_id);
+  const serviceCount = knownServiceCount ?? (await listWebsitesForUser(env, website.user_id)).length;
+  const owner = await getUserById(env, website.user_id).catch(() => null);
+  const published = website.is_published !== false;
+  // WhatsApp lists hold at most 10 rows, so the stats row is also the summary.
   await sendListMessage(env, from, `للتعديل السريع اكتب طلبك مباشرة (مثل: "غيّر لون الموقع للأزرق" أو "عدّل الوصف")، وللمنتجات والصور افتح لوحة التحكم.`, "القائمة", [
     {
       title: "القائمة الرئيسية",
       rows: [
-        { id: "menu_dashboard", title: "لوحة التحكم 🖥️", description: `المنتجات والصور والمحتوى` },
+        { id: "menu_dashboard", title: "لوحة التحكم 🖥️", description: "المنتجات والصور والمحتوى" },
         { id: "menu_view_site", title: "عرض الموقع 🌐", description: "افتح رابط موقعك" },
-        { id: "menu_stats", title: "الإحصائيات 📊", description: "عدد زوار موقعك" },
+        { id: "menu_orders", title: `${noun.many} 📥`.slice(0, 24), description: "آخر ما وصلك، وتحديث حالته" },
+        { id: "menu_stats", title: "ملخص وإحصائيات 📊", description: "زوار وطلبات كل خدماتك" },
+        { id: "menu_new_service", title: "خدمة جديدة ➕", description: "موقع أو حجز أو استبيان آخر" },
+        ...(serviceCount > 1 ? [{ id: "menu_services", title: "تبديل الخدمة 🔀", description: `لديك ${serviceCount} خدمات — اختر التي تعمل عليها` }] : []),
+        { id: "menu_toggle_publish", title: published ? "إيقاف النشر ⏸️" : "إعادة النشر ▶️", description: published ? "إخفاء الخدمة مؤقتًا مع حفظ بياناتها" : "إظهار الخدمة لزوارك من جديد" },
+        { id: "menu_notify", title: owner?.notify_orders === false ? "تفعيل الإشعارات 🔔" : "إيقاف الإشعارات 🔕", description: "تنبيه فوري عند وصول طلب جديد" },
         { id: "menu_help", title: "مساعدة ❓", description: "ماذا يقدر يفعل ORxai" },
-        { id: "menu_delete_site", title: "حذف الموقع 🗑️", description: "حذف نهائي، وبناء موقع جديد من الصفر" },
+        { id: "menu_delete_site", title: "حذف الموقع 🗑️", description: "حذف نهائي للخدمة الحالية" },
       ],
     },
   ]);
@@ -840,7 +879,7 @@ async function extractNameAndPrice(env: Env, rawText: string, label: string): Pr
 }
 
 async function handleFlowImage(env: Env, user: UserRow, from: string, message: IncomingMessage): Promise<void> {
-  const website = await getLatestWebsite(env, user.id);
+  const website = await getActiveWebsite(env, user);
   if (!website) {
     await clearPendingFlowQuietly(env, user.id);
     return;
@@ -864,7 +903,7 @@ async function handleFlowImage(env: Env, user: UserRow, from: string, message: I
 // here are flow_save_add and flow_save_edit, both only reachable once
 // pending_flow is already the matching confirm_* step.
 async function saveConfirmedFlow(env: Env, user: UserRow, from: string, mode: "add" | "edit"): Promise<void> {
-  const website = await getLatestWebsite(env, user.id);
+  const website = await getActiveWebsite(env, user);
   const data = user.pending_flow_data as Record<string, unknown>;
   if (!website || typeof data.name !== "string") {
     await clearPendingFlowQuietly(env, user.id);
@@ -901,16 +940,205 @@ async function saveConfirmedFlow(env: Env, user: UserRow, from: string, mode: "a
   await sendSuccessMenu(env, from, website, mode === "add" ? `تمت إضافة "${data.name}" بنجاح ✅` : `تم حفظ التعديلات على "${data.name}" بنجاح ✅`);
 }
 
+// ---------------------------------------------------------------------------
+// Multi-service support (shared registry: ./service-registry)
+// ---------------------------------------------------------------------------
+
+const BALANCE_PATTERN = /تبق[تى]|المتبقي|رصيدي|كم.*رسالة/i;
+
+// Mid-task = the person is answering a step-by-step question; their reply must
+// keep going to the same service, so no re-resolution happens then.
+function isMidTask(user: UserRow): boolean {
+  return Boolean(user.pending_flow || user.pending_image_new_key || user.pending_images.length > 0 || user.pending_build_request);
+}
+
+async function sendServicePicker(
+  env: Env,
+  from: string,
+  services: ServiceRecord[],
+  activeId: string | null | undefined,
+  intro: string,
+): Promise<void> {
+  // WhatsApp lists hold 10 rows; titles 24 chars, descriptions 72.
+  const rows = services.slice(0, 10).map((service) => {
+    const mark = service.id === activeId ? "✅ " : "";
+    const count = service.submissions ? ` · ${service.submissions} ${submissionNouns(service.templateId).many}` : "";
+    return {
+      id: `svc_pick:${service.id}`,
+      title: `${mark}${service.name}`.slice(0, 24),
+      description: `${service.typeLabel}${count}`.slice(0, 72),
+    };
+  });
+  await sendListMessage(env, from, intro, "اختيار الخدمة", [{ title: "خدماتك", rows }]);
+}
+
+// Bookings / orders / responses of one service — read straight from the
+// database, no AI and no quota.
+async function sendSubmissionsReport(env: Env, from: string, user: UserRow, website: WebsiteRow): Promise<void> {
+  const noun = submissionNouns(website.template_id);
+  const total = Array.isArray(website.json_structure?.submissions) ? (website.json_structure.submissions as unknown[]).length : 0;
+  const base = await frontendBaseUrl(env);
+  let text: string;
+  if (total === 0) {
+    text = `لا توجد ${noun.many} على «${website.site_name}» حتى الآن.\nشارك رابط الخدمة ليبدأ وصولها: ${base}/${website.username}`;
+  } else {
+    const lines = listSubmissions(website, 5).map((entry, index) => {
+      const tag = supportsStatus(website.template_id) ? ` [${STATUS_LABELS[entry.status]}]` : "";
+      const head = `${index + 1}) ${entry.name}${entry.phone ? ` — ${entry.phone}` : ""}${tag}`;
+      const detail = entry.summary ? `\n   ${entry.summary}` : "";
+      const when = formatDateAr(entry.createdAt);
+      return `${head}${detail}${when ? `\n   🕒 ${when}` : ""}`;
+    });
+    const more = total > 5 ? `\n\nوالباقي (${total - 5}) في لوحة التحكم: ${base}/dashboard` : "";
+    text = `📥 ${noun.many} «${website.site_name}» — الإجمالي ${total}\n\n${lines.join("\n\n")}${more}`;
+  }
+  await replyToUser(env, from, user.id, text, website);
+  if (total > 0 && supportsStatus(website.template_id)) {
+    const rows = listSubmissions(website, 5).map((entry, index) => ({
+      id: `sub_pick:${website.id}:${entry.id}`,
+      title: `${index + 1}) ${entry.name}`.slice(0, 24),
+      description: `${STATUS_LABELS[entry.status]}${entry.summary ? ` · ${entry.summary}` : ""}`.slice(0, 72),
+    }));
+    await sendListMessage(env, from, "لتحديث حالة طلب (تأكيد / منجز / إلغاء) اختره من القائمة:", "تحديث حالة", [{ title: "آخر الطلبات", rows }]);
+  }
+}
+
+async function sendAllServicesOverview(env: Env, from: string, user: UserRow, services: ServiceRecord[]): Promise<void> {
+  const lines = services.map((service) => {
+    const noun = submissionNouns(service.templateId);
+    return `• ${service.name} (${service.typeLabel}): ${service.submissions} ${service.submissions === 1 ? noun.one : noun.many}`;
+  });
+  const text = `ملخص خدماتك:\n${lines.join("\n")}`;
+  await sendTextMessage(env, from, text);
+  await recordConversation(env, user.id, "outbound", text);
+  await sendServicePicker(env, from, services, user.active_website_id, "اختر خدمة لأعرض لك تفاصيلها:");
+}
+
+// ---------------------------------------------------------------------------
+// Stronger bot: summary, pause/resume, order alerts + status, extra services.
+// Everything here is deterministic — none of it spends an AI message.
+// ---------------------------------------------------------------------------
+
+const isNewServiceFlow = (user: UserRow): boolean => (user.pending_flow_data as Record<string, unknown> | null)?.newService === true;
+
+// The first-site build flow also runs when someone who already has services asks
+// for another one; every "is there nothing to edit yet?" guard goes through this.
+const canBuildHere = (website: WebsiteRow | null, user: UserRow): boolean => !website || isNewServiceFlow(user);
+
+// One message about everything: visits, entries waiting, paused or live.
+async function sendSummary(env: Env, from: string, user: UserRow, rows: WebsiteRow[], active: WebsiteRow | null): Promise<void> {
+  const blocks: string[] = [];
+  for (const w of rows) {
+    const visits = await getVisitStats(env, w.id).catch(() => ({ today: 0, total: 0 }));
+    const record = toServiceRecord(w);
+    const noun = submissionNouns(w.template_id);
+    const waiting = supportsStatus(w.template_id) ? listSubmissions(w, 200).filter((e) => e.status === "new").length : 0;
+    const entries = record.submissions
+      ? `\n   📥 ${record.submissions} ${noun.many}${supportsStatus(w.template_id) && waiting ? ` — ${waiting} بانتظار ردّك` : ""}`
+      : "";
+    blocks.push(`${record.published ? "🟢" : "⏸️ (متوقفة)"} ${w.site_name} — ${record.typeLabel}\n   👀 ${visits.today} اليوم · ${visits.total} إجمالاً${entries}`);
+  }
+  await replyToUser(env, from, user.id, `📊 ملخص خدماتك\n\n${blocks.join("\n\n")}`, active ?? rows[0] ?? null);
+}
+
+async function togglePublish(
+  env: Env,
+  from: string,
+  user: UserRow,
+  rows: WebsiteRow[],
+  website: WebsiteRow,
+  desired: boolean | null,
+): Promise<void> {
+  const record = toServiceRecord(website);
+  const target = desired ?? !record.published;
+  if (target === record.published) {
+    await sendTextMessage(env, from, `«${website.site_name}» ${target ? "منشورة" : "متوقفة"} بالفعل.`);
+    return;
+  }
+  if (target) {
+    const allowed = checkCanPublish(rows.map(toServiceRecord), record, user.plan);
+    if (!allowed.ok) {
+      await sendTextMessage(env, from, allowed.message);
+      await recordConversation(env, user.id, "outbound", allowed.message);
+      return;
+    }
+  }
+  await setWebsitePublished(env, website.id, target);
+  const base = await frontendBaseUrl(env);
+  const text = target
+    ? `▶️ أعدت نشر «${website.site_name}»:\n${base}/${website.username}`
+    : `⏸️ أوقفت نشر «${website.site_name}». بياناتها محفوظة وزوارك لن يروها، وصارت خانتها فاضية في خطتك.\nاكتب «انشر الموقع» متى ما أردت إعادتها.`;
+  await sendTextMessage(env, from, text);
+  await recordConversation(env, user.id, "outbound", text);
+}
+
+async function toggleNotify(env: Env, from: string, user: UserRow, desired: boolean | null): Promise<void> {
+  const target = desired ?? user.notify_orders === false;
+  await setNotifyOrders(env, user.id, target);
+  const text = target
+    ? "🔔 فعّلت إشعارات الطلبات: أرسل لك رسالة فور وصول أي حجز أو طلب أو رد جديد."
+    : "🔕 أوقفت إشعارات الطلبات. تقدر تتابعها بكتابة «الطلبات»، أو فعّلها بكتابة «فعّل الإشعارات».";
+  await sendTextMessage(env, from, text);
+  await recordConversation(env, user.id, "outbound", text);
+}
+
+async function startNewService(env: Env, from: string, user: UserRow, rows: WebsiteRow[]): Promise<void> {
+  const open = creatableTypes(rows.map(toServiceRecord), user.plan);
+  if (open.length === 0) {
+    const text = "وصلت للحد المجاني في كل الأنواع. أوقف نشر إحدى خدماتك أو احذفها، ثم أنشئ جديدة.\nاكتب «خدماتي» لعرضها.";
+    await sendTextMessage(env, from, text);
+    await recordConversation(env, user.id, "outbound", text);
+    return;
+  }
+  if (!(await setPendingFlowOrNotify(env, from, user.id, "ns_describe", { newService: true }))) return;
+  const text = "حياك! احكيلي عن الخدمة الجديدة: وش نوعها ووش تبي تقدّم؟\nمثال: «عيادة أسنان لحجز المواعيد» أو «استبيان لرضا العملاء».\n(للإلغاء اكتب: إلغاء)";
+  await sendTextMessage(env, from, text);
+  await recordConversation(env, user.id, "outbound", text);
+}
+
+// Bookings/orders in the owner's WhatsApp the moment they arrive, with one-tap
+// status buttons. Free-form messages only reach WhatsApp inside Meta's 24-hour
+// window after the owner last wrote to the bot; outside it Meta refuses and the
+// caller swallows the error (the entry is still saved and visible everywhere).
+export async function notifyOwnerOfSubmission(
+  env: Env,
+  owner: UserRow,
+  website: WebsiteRow,
+  submission: Record<string, unknown>,
+): Promise<void> {
+  const noun = submissionNouns(website.template_id);
+  const entry = listSubmissions({ ...website, json_structure: { submissions: [submission] } } as WebsiteRow, 1)[0];
+  if (!entry) return;
+  const link = entry.phone ? waLink(entry.phone) : null;
+  const text = [
+    `🔔 ${noun.one} جديد على «${website.site_name}»`,
+    `👤 ${entry.name}${entry.phone ? `\n📞 ${entry.phone}` : ""}`,
+    entry.summary ? entry.summary : "",
+    link ? `💬 ردّ عليه: ${link}` : "",
+  ].filter(Boolean).join("\n");
+  if (supportsStatus(website.template_id) && entry.id) {
+    await sendButtonMessage(env, owner.phone_number, text, [
+      { id: `sub_set:${website.id}:${entry.id}:confirmed`, title: "تأكيد ✅" },
+      { id: `sub_set:${website.id}:${entry.id}:done`, title: "منجز 🎉" },
+      { id: `sub_set:${website.id}:${entry.id}:cancelled`, title: "إلغاء ❌" },
+    ]);
+  } else {
+    await sendTextMessage(env, owner.phone_number, text);
+  }
+  await recordConversation(env, owner.id, "outbound", text);
+}
+
 async function handleSelection(env: Env, from: string, selectionId: string): Promise<void> {
   let user = await ensureUser(env, from);
-  const website = await getLatestWebsite(env, user.id);
+  const website = await getActiveWebsite(env, user);
 
   // Tapping anything other than the flow's own controls (skip/cancel/save)
   // abandons whatever step-by-step flow was pending, so a stale draft never
   // silently swallows an unrelated later reply.
   const flowContinuationIds = new Set(["flow_skip", "flow_cancel", "flow_save_add", "flow_save_edit"]);
   const isBuildChoiceId = selectionId.startsWith("build_type:") || selectionId.startsWith("build_style:") || selectionId === "retry_build";
-  if (user.pending_flow && !flowContinuationIds.has(selectionId) && !isBuildChoiceId) {
+  const isServicePick = selectionId.startsWith("svc_pick:");
+  if (user.pending_flow && !flowContinuationIds.has(selectionId) && !isBuildChoiceId && !isServicePick) {
     await clearPendingFlowQuietly(env, user.id);
     user = { ...user, pending_flow: null, pending_flow_data: {} };
   }
@@ -923,13 +1151,96 @@ async function handleSelection(env: Env, from: string, selectionId: string): Pro
     user = { ...user, pending_image_url: null, pending_image_new_key: null, pending_images: [] };
   }
 
-  const typeChoiceMatch = selectionId.match(/^build_type:(store|restaurant|services|portfolio|booking|auto)$/);
+  if (selectionId === "menu_new_service") {
+    await startNewService(env, from, user, await listWebsitesForUser(env, user.id));
+    return;
+  }
+  if (selectionId === "menu_toggle_publish") {
+    if (website) await togglePublish(env, from, user, await listWebsitesForUser(env, user.id), website, null);
+    return;
+  }
+  if (selectionId === "menu_notify") {
+    await toggleNotify(env, from, user, null);
+    return;
+  }
+
+  // Pick one booking/order → offer the status buttons. Ownership is re-checked
+  // against the person's own services every time (ids come from the chat).
+  const subPick = selectionId.match(/^sub_pick:([^:]+):([^:]+)$/);
+  if (subPick) {
+    const owned = (await listWebsitesForUser(env, user.id)).find((w) => w.id === subPick[1]);
+    const entry = owned ? listSubmissions(owned, 200).find((e) => e.id === subPick[2]) : undefined;
+    if (!owned || !entry) {
+      await sendTextMessage(env, from, "ما لقيت هذا الطلب. اكتب «الطلبات» لعرض آخر ما وصلك.");
+      return;
+    }
+    await sendButtonMessage(env, from, `${entry.name}${entry.phone ? ` — ${entry.phone}` : ""}\nالحالة الآن: ${STATUS_LABELS[entry.status]}\nاختر الحالة الجديدة:`, [
+      { id: `sub_set:${owned.id}:${entry.id}:confirmed`, title: "تأكيد ✅" },
+      { id: `sub_set:${owned.id}:${entry.id}:done`, title: "منجز 🎉" },
+      { id: `sub_set:${owned.id}:${entry.id}:cancelled`, title: "إلغاء ❌" },
+    ]);
+    return;
+  }
+  const subSet = selectionId.match(/^sub_set:([^:]+):([^:]+):(confirmed|done|cancelled)$/);
+  if (subSet) {
+    const owned = (await listWebsitesForUser(env, user.id)).find((w) => w.id === subSet[1]);
+    const entry = owned ? listSubmissions(owned, 200).find((e) => e.id === subSet[2]) : undefined;
+    if (!owned || !entry || !(await setSubmissionStatus(env, owned, subSet[2], subSet[3]))) {
+      await sendTextMessage(env, from, "ما قدرت أحدّث هذا الطلب (ربما حُذف). اكتب «الطلبات» وجرّب من جديد.");
+      return;
+    }
+    const text = `تم ✅ ${entry.name}: ${STATUS_LABELS[subSet[3] as "confirmed" | "done" | "cancelled"]}`;
+    await sendTextMessage(env, from, text);
+    await recordConversation(env, user.id, "outbound", text);
+    return;
+  }
+
+  if (selectionId === "menu_services" || selectionId === "menu_orders" || isServicePick) {
+    const rows = await listWebsitesForUser(env, user.id);
+    const services = rows.map(toServiceRecord);
+    if (selectionId === "menu_services") {
+      await sendServicePicker(env, from, services, user.active_website_id, "اختر الخدمة التي تريد العمل عليها:");
+      return;
+    }
+    if (selectionId === "menu_orders") {
+      if (website) await sendSubmissionsReport(env, from, user, website);
+      return;
+    }
+    const picked = rows.find((w) => w.id === selectionId.slice("svc_pick:".length));
+    if (!picked) {
+      await sendTextMessage(env, from, "هذه الخدمة لم تعد موجودة. اكتب «خدماتي» لعرض القائمة.");
+      return;
+    }
+    await setActiveWebsite(env, user.id, picked.id);
+    const stored = user.pending_flow === "choose_service" && typeof user.pending_flow_data?.text === "string" ? user.pending_flow_data.text : "";
+    if (user.pending_flow === "choose_service") await clearPendingFlowQuietly(env, user.id);
+    const note = `اخترت «${picked.site_name}» ✅`;
+    await sendTextMessage(env, from, stored ? `${note} — سأنفّذ طلبك عليها.` : `${note}\nاكتب طلبك الآن، أو اكتب «الطلبات» لمتابعة ما وصلك.`);
+    await recordConversation(env, user.id, "outbound", note);
+    if (stored) {
+      // Continue the request that was waiting for this answer.
+      await handleMessage(env, { from, id: `replay:${Date.now()}`, type: "text", text: { body: stored } }, true);
+    }
+    return;
+  }
+
+
+  const typeChoiceMatch = selectionId.match(/^build_type:(store|restaurant|services|portfolio|booking|survey|rsvp|vcard|invoice|auto)$/);
   if (typeChoiceMatch) {
-    if (!user.pending_build_request || website || user.pending_flow !== "build_choose_type") {
+    if (!user.pending_build_request || !canBuildHere(website, user) || user.pending_flow !== "build_choose_type") {
       await sendTextMessage(env, from, "ما فيه طلب إنشاء موقع بانتظار هذا الاختيار حاليًا.");
       return;
     }
     const type = typeChoiceMatch[1] === "auto" ? undefined : typeChoiceMatch[1];
+    if (type && isNewServiceFlow(user)) {
+      // Say "your plan is full for this type" now, not after the person has also
+      // picked a style and waited for generation.
+      const allowed = checkCanCreate((await listWebsitesForUser(env, user.id)).map(toServiceRecord), type, user.plan);
+      if (!allowed.ok) {
+        await sendTextMessage(env, from, `${allowed.message}\nاختر نوعًا آخر من القائمة.`);
+        return;
+      }
+    }
     // Carry the username forward — setPendingFlow REPLACES pending_flow_data
     // wholesale, it doesn't merge, so dropping the spread here would silently
     // lose the username collected one step earlier.
@@ -940,7 +1251,7 @@ async function handleSelection(env: Env, from: string, selectionId: string): Pro
 
   const styleChoiceMatch = selectionId.match(/^build_style:(classic|modern|cinematic|app|auto)$/);
   if (styleChoiceMatch) {
-    if (!user.pending_build_request || website || user.pending_flow !== "build_choose_style") {
+    if (!user.pending_build_request || !canBuildHere(website, user) || user.pending_flow !== "build_choose_style") {
       await sendTextMessage(env, from, "ما فيه طلب إنشاء موقع بانتظار هذا الاختيار حاليًا.");
       return;
     }
@@ -952,7 +1263,7 @@ async function handleSelection(env: Env, from: string, selectionId: string): Pro
   }
 
   if (selectionId === "retry_build") {
-    if (!user.pending_build_request || website || user.pending_flow !== "build_choose_style") {
+    if (!user.pending_build_request || !canBuildHere(website, user) || user.pending_flow !== "build_choose_style") {
       await sendTextMessage(env, from, "ما فيه طلب إنشاء بانتظار إعادة المحاولة. أخبرني عن نشاطك التجاري من جديد.");
       return;
     }
@@ -990,7 +1301,7 @@ async function handleSelection(env: Env, from: string, selectionId: string): Pro
 
   if (selectionId === "menu_help") {
     const responseText = website
-      ? `هذا دوري معك:\n\n✏️ التعديل السريع على النصوص والألوان والشكل — اكتب طلبك بكلامك العادي، مثل: "غيّر لون الموقع للأزرق"، "خلي التصميم يشبه تطبيق موبايل"، "عدّل الوصف".\n🖥️ المنتجات والأطباق والخدمات والصور وكل المحتوى — من لوحة التحكم في المنصة (زر "لوحة التحكم" في القائمة).\n🗑️ وأقدر أحذف موقعك وأبدأ معك من جديد.`
+      ? `هذا دوري معك:\n\n🔔 أنبّهك فور وصول أي حجز أو طلب أو رد، وتقدر تؤكده أو تنجزه أو تلغيه من نفس الرسالة.\n📊 اكتب «ملخص» لتشوف زوار وطلبات كل خدماتك.\n⏸️ «أوقف الموقع» لإخفائه مؤقتًا و«انشر الموقع» لإعادته.\n➕ «موقع جديد» لإضافة خدمة أخرى.\n🔀 «خدماتي» للتبديل بين خدماتك.\n\n✏️ التعديل السريع على النصوص والألوان والشكل — اكتب طلبك بكلامك العادي، مثل: "غيّر لون الموقع للأزرق"، "خلي التصميم يشبه تطبيق موبايل"، "عدّل الوصف".\n🖥️ المنتجات والأطباق والخدمات والصور وكل المحتوى — من لوحة التحكم في المنصة (زر "لوحة التحكم" في القائمة).\n🗑️ وأقدر أحذف موقعك وأبدأ معك من جديد.`
       : "ORxai يبني لك موقعًا احترافيًا من وصف بسيط لنشاطك — فقط أخبرني عنه، وبعدها تدير كل شيء من لوحة التحكم.";
     await sendTextMessage(env, from, responseText);
     await recordConversation(env, user.id, "outbound", responseText);
@@ -1222,8 +1533,7 @@ async function handleSelection(env: Env, from: string, selectionId: string): Pro
       await replyToUser(env, from, user.id, "ما عندك موقع بعد. اضغط 'إنشاء موقع' نبدأ.", null);
       return;
     }
-    const stats = await getVisitStats(env, website.id);
-    await replyToUser(env, from, user.id, `📊 إحصائيات موقعك:\nزوار اليوم: ${stats.today}\nإجمالي الزوار: ${stats.total}`, website);
+    await sendSummary(env, from, user, await listWebsitesForUser(env, user.id), website);
     return;
   }
 
@@ -1270,7 +1580,7 @@ async function handleSelection(env: Env, from: string, selectionId: string): Pro
 
 async function handleImageMessage(env: Env, from: string, message: IncomingMessage): Promise<void> {
   const user = await ensureUser(env, from);
-  const website = await getLatestWebsite(env, user.id);
+  const website = await getActiveWebsite(env, user);
   if (!website) {
     const responseText = "لازم تنشئ موقعك أولًا قبل إضافة صور. أخبرني عن نشاطك التجاري.";
     await sendTextMessage(env, from, responseText);
@@ -1343,20 +1653,29 @@ async function sendBuildProgressUpdates(env: Env, from: string): Promise<void> {
 // Asked right after the username, before generating anything — the person
 // picks the site type explicitly instead of the bot silently guessing it
 // from free text.
-async function sendTypeChoices(env: Env, from: string): Promise<void> {
-  await sendListMessage(env, from, "أي نوع يناسب موقعك؟", "اختيار النوع", [
-    {
-      title: "نوع الموقع",
-      rows: [
-        { id: "build_type:store", title: "متجر 🛍️", description: "لبيع منتجات: ملابس، إكسسوارات، أي بضائع" },
-        { id: "build_type:restaurant", title: "مطعم / مقهى 🍽️", description: "لعرض قائمة الأطعمة والمشروبات" },
-        { id: "build_type:services", title: "خدمات 🧰", description: "تصميم، صيانة، استشارات، وغيرها" },
-        { id: "build_type:portfolio", title: "بورتفوليو 🎨", description: "لعرض أعمالك ومشاريعك السابقة" },
-        { id: "build_type:booking", title: "حجز مواعيد 📅", description: "عيادة، صالون، مستشار..." },
-        { id: "build_type:auto", title: "اختر لي الأنسب ✨", description: "أدعك أقرر حسب وصفك" },
-      ],
-    },
-  ]);
+async function sendTypeChoices(env: Env, from: string, opts?: { services: ServiceRecord[]; plan?: string | null }): Promise<void> {
+  type Row = { id: string; title: string; description: string };
+  const rows: Row[] = [
+    { id: "build_type:store", title: "متجر 🛍️", description: "لبيع منتجات: ملابس، إكسسوارات، أي بضائع" },
+    { id: "build_type:restaurant", title: "مطعم / مقهى 🍽️", description: "لعرض قائمة الأطعمة والمشروبات" },
+    { id: "build_type:services", title: "خدمات 🧰", description: "تصميم، صيانة، استشارات، وغيرها" },
+    { id: "build_type:portfolio", title: "بورتفوليو 🎨", description: "لعرض أعمالك ومشاريعك السابقة" },
+    { id: "build_type:booking", title: "حجز مواعيد 📅", description: "عيادة، صالون، مستشار..." },
+  ];
+  if (opts) {
+    rows.push(
+      { id: "build_type:survey", title: "استبيان 📋", description: "اسأل عملاءك واجمع آراءهم" },
+      { id: "build_type:rsvp", title: "دعوة وحضور 🎉", description: "مناسبة أو حفل مع تأكيد الحضور" },
+      { id: "build_type:vcard", title: "بطاقة تعريفية 💳", description: "بطاقة رقمية بروابطك" },
+      { id: "build_type:invoice", title: "عروض أسعار 🏷️", description: "باقات وطلبات عروض أسعار" },
+    );
+    for (const row of rows) {
+      const id = row.id.slice("build_type:".length);
+      if (!checkCanCreate(opts.services, id, opts.plan).ok) row.description = "✋ مكتمل في خطتك — أوقف نشر الموجودة أولًا";
+    }
+  }
+  rows.push({ id: "build_type:auto", title: "اختر لي الأنسب ✨", description: "أدعك أقرر حسب وصفك" });
+  await sendListMessage(env, from, "أي نوع يناسب خدمتك؟", "اختيار النوع", [{ title: "نوع الخدمة", rows }]);
 }
 
 // Style support for per-item photos differs by choice (see
@@ -1383,6 +1702,10 @@ function matchTypeFromText(text: string): string | null {
   if (/متجر|محل|منتج/i.test(normalized)) return "store";
   if (/مطعم|مقهى|كافيه|كافي/i.test(normalized)) return "restaurant";
   if (/بورتفوليو|معرض أعمال|أعمالي/i.test(normalized)) return "portfolio";
+  if (/استبيان|استطلاع/i.test(normalized)) return "survey";
+  if (/دعوة|حفل|زفاف/i.test(normalized)) return "rsvp";
+  if (/بطاقة|كرت/i.test(normalized)) return "vcard";
+  if (/عرض سعر|عروض أسعار|باقات|فاتورة/i.test(normalized)) return "invoice";
   if (/حجز|موعد/i.test(normalized)) return "booking";
   if (/خدم/i.test(normalized)) return "services";
   return null;
@@ -1442,6 +1765,19 @@ async function generateAndCreateSite(
   }
   await progress;
 
+  // Plan limits (free = one website + one interactive service per type). Checked
+  // before a message is charged, and never silently: say why and what to do.
+  const finalTemplateId = forced?.templateId || generated.templateId;
+  const existingServices = (await listWebsitesForUser(env, user.id)).map(toServiceRecord);
+  const allowed = checkCanCreate(existingServices, finalTemplateId, user.plan);
+  if (!allowed.ok) {
+    await setPendingBuildRequest(env, user.id, null);
+    await clearPendingFlowQuietly(env, user.id);
+    await sendTextMessage(env, from, allowed.message);
+    await recordConversation(env, user.id, "outbound", allowed.message);
+    return;
+  }
+
   const quotaUser = await consumeMessageQuota(env, user.id);
   if (!quotaUser) {
     await sendTextMessage(env, from, "انتهت رسائلك المجانية. تواصل مع الإدارة لتوسيع حصتك.");
@@ -1457,6 +1793,8 @@ async function generateAndCreateSite(
     json_structure: forced?.templateStyle ? { ...generated.jsonStructure, templateStyle: forced.templateStyle } : generated.jsonStructure,
     show_branding: true,
   });
+  // From now on the bot works on the service that was just created.
+  await setActiveWebsite(env, user.id, created.id);
   await setPendingBuildRequest(env, user.id, null);
   await clearPendingFlowQuietly(env, user.id);
   const baseUrl = await frontendBaseUrl(env);
@@ -1468,7 +1806,7 @@ async function generateAndCreateSite(
   await sendMainMenu(env, from, created);
 }
 
-async function handleMessage(env: Env, message: IncomingMessage): Promise<void> {
+async function handleMessage(env: Env, message: IncomingMessage, replay = false): Promise<void> {
   const from = message.from;
   if (!from || !message.id) return;
 
@@ -1497,7 +1835,7 @@ async function handleMessage(env: Env, message: IncomingMessage): Promise<void> 
     }
     // Images are uploaded from the dashboard now (it knows the site's style
     // and shows the result immediately) — chat just points the way.
-    const imageSite = await getLatestWebsite(env, flowUser.id);
+    const imageSite = await getActiveWebsite(env, flowUser);
     const imageBase = await frontendBaseUrl(env);
     await replyToUser(
       env,
@@ -1516,10 +1854,14 @@ async function handleMessage(env: Env, message: IncomingMessage): Promise<void> 
 
   void markMessageRead(env, message.id).catch((error) => console.error("Mark read failed", error));
   let user = await ensureUser(env, from);
-  const [, website] = await Promise.all([
-    recordConversation(env, user.id, "inbound", text),
-    getLatestWebsite(env, user.id),
+  const [, websiteRows] = await Promise.all([
+    replay ? Promise.resolve() : recordConversation(env, user.id, "inbound", text),
+    listWebsitesForUser(env, user.id),
   ]);
+  const services = websiteRows.map(toServiceRecord);
+  // Default: the remembered service, else the most recently updated one.
+  let website: WebsiteRow | null = websiteRows.find((w) => w.id === user.active_website_id) ?? websiteRows[0] ?? null;
+  let routedVia: "only" | "text" | "remembered" | null = websiteRows.length === 1 ? "only" : null;
 
   // Platform sign-in: the dashboard shows a one-time code (ORX-XXXXXX) and the
   // person sends it here from their own WhatsApp — that is the whole proof of
@@ -1536,6 +1878,100 @@ async function handleMessage(env: Env, message: IncomingMessage): Promise<void> 
     await sendTextMessage(env, from, responseText);
     await recordConversation(env, user.id, "outbound", responseText);
     return;
+  }
+
+  // The person is picking a service by typing its name (we asked "which one?").
+  if (user.pending_flow === "choose_service" && websiteRows.length > 0) {
+    const stored = typeof user.pending_flow_data?.text === "string" ? user.pending_flow_data.text : "";
+    const answer = resolveService(text, services);
+    if (answer.kind === "match") {
+      await setActiveWebsite(env, user.id, answer.service.id);
+      await clearPendingFlowQuietly(env, user.id);
+      await sendTextMessage(env, from, `اخترت «${answer.service.name}» ✅${stored ? " — سأنفّذ طلبك عليها." : ""}`);
+      if (stored) await handleMessage(env, { from, id: `replay:${Date.now()}`, type: "text", text: { body: stored } }, true);
+      return;
+    }
+    if (!cancelPattern.test(text)) {
+      await sendServicePicker(env, from, services, user.active_website_id, "ما عرفت أي خدمة تقصد. اختر من القائمة:");
+      return;
+    }
+  }
+
+  // With several services, work out which one this message is about — from the
+  // message itself, then from the one we were already on — and only ask when
+  // neither tells us. Skipped mid-task so step-by-step answers stay put.
+  if (websiteRows.length > 1 && !isMidTask(user)) {
+    if (wantsServiceList(text)) {
+      await sendServicePicker(env, from, services, website?.id ?? null, "اختر الخدمة التي تريد العمل عليها:");
+      await recordConversation(env, user.id, "outbound", "[قائمة الخدمات]");
+      return;
+    }
+    const serviceAgnostic =
+      isBareGreeting(text) || BALANCE_PATTERN.test(text) || wantsSummary(text) || wantsNotifyOff(text) || wantsNotifyOn(text) || wantsNewService(text);
+    if (!serviceAgnostic) {
+      const decision = decideService(text, services, user.active_website_id);
+      if (decision.kind === "choose") {
+        if (wantsSubmissions(text)) {
+          await sendAllServicesOverview(env, from, user, services);
+          return;
+        }
+        // Remember the request so picking a service continues it.
+        if (await setPendingFlowOrNotify(env, from, user.id, "choose_service", { text })) {
+          await sendServicePicker(env, from, services, null, "لأي خدمة تقصد؟ اختر من القائمة أو اكتب اسمها:");
+        }
+        return;
+      }
+      routedVia = decision.via;
+      website = websiteRows.find((w) => w.id === decision.service.id) ?? website;
+      if (decision.service.id !== user.active_website_id) {
+        await setActiveWebsite(env, user.id, decision.service.id);
+        user = { ...user, active_website_id: decision.service.id };
+        if (decision.via === "text") await sendTextMessage(env, from, `🔀 تعاملت مع «${decision.service.name}»`);
+      }
+    }
+  }
+
+
+  // ---- Extra service for someone who already has services (described → link →
+  // type → style → the same generator as the first site). Plan limits are checked
+  // when the type is chosen and again right before anything is charged.
+  if (user.pending_flow === "ns_describe") {
+    if (cancelPattern.test(text)) {
+      await cancelFlow(env, user, from, website);
+      return;
+    }
+    if (!(await setPendingFlowOrNotify(env, from, user.id, "ns_username", { newService: true }))) return;
+    await setPendingBuildRequest(env, user.id, text);
+    await sendTextMessage(env, from, "ممتاز 👌 أرسل اسم الرابط بالإنجليزية (3 إلى 30 حرفًا)، مثل: dental-clinic");
+    return;
+  }
+  if (user.pending_flow === "ns_username") {
+    if (cancelPattern.test(text)) {
+      await cancelFlow(env, user, from, website);
+      return;
+    }
+    const username = normalizeUsername(text);
+    if (!username) {
+      await sendTextMessage(env, from, "أرسل اسم الرابط بالإنجليزية، من 3 إلى 30 حرفًا أو رقمًا، مثل: dental-clinic");
+      return;
+    }
+    if (await getWebsiteByPublicId(env, username)) {
+      await sendTextMessage(env, from, "هذا الاسم مستخدم من قبل. أرسل اسمًا آخر مثل: my-clinic-2");
+      return;
+    }
+    if (!(await setPendingFlowOrNotify(env, from, user.id, "build_choose_type", { username, newService: true }))) return;
+    await sendTypeChoices(env, from, { services: services, plan: user.plan });
+    return;
+  }
+
+  // Intents that need no AI: pause/resume, alerts, summary, "another service".
+  if (website && !isMidTask(user)) {
+    if (wantsNotifyOff(text)) return await toggleNotify(env, from, user, false);
+    if (wantsNotifyOn(text)) return await toggleNotify(env, from, user, true);
+    if (wantsPause(text)) return await togglePublish(env, from, user, websiteRows, website, false);
+    if (wantsResume(text)) return await togglePublish(env, from, user, websiteRows, website, true);
+    if (wantsSummary(text)) return await sendSummary(env, from, user, websiteRows, website);
+    if (wantsNewService(text)) return await startNewService(env, from, user, websiteRows);
   }
 
   if (website && user.pending_flow && cancelPattern.test(text)) {
@@ -1672,7 +2108,7 @@ async function handleMessage(env: Env, message: IncomingMessage): Promise<void> 
 
   const buildKeywords = ["أنشئ", "انشئ", "ابني", "ابنِ", "ابنى", "اصنع", "سوي", "سو", "موقع"];
 
-  if (user.pending_build_request && !website && user.pending_flow === "build_choose_type") {
+  if (user.pending_build_request && canBuildHere(website, user) && user.pending_flow === "build_choose_type") {
     const type = matchTypeFromText(text);
     if (!type) {
       await sendTextMessage(env, from, "اختر نوعًا من القائمة فوق، أو اكتبه بكلمة وحدة مثل: متجر، مطعم، خدمات، بورتفوليو، حجز.");
@@ -1683,7 +2119,7 @@ async function handleMessage(env: Env, message: IncomingMessage): Promise<void> 
     return;
   }
 
-  if (user.pending_build_request && !website && user.pending_flow === "build_choose_style") {
+  if (user.pending_build_request && canBuildHere(website, user) && user.pending_flow === "build_choose_style") {
     const style = matchStyleFromText(text);
     if (!style) {
       await sendTextMessage(env, from, "اختر شكلًا من القائمة فوق، أو اكتبه بكلمة وحدة مثل: كلاسيكي، عصري، سينمائي، تطبيق.");
@@ -1732,7 +2168,17 @@ async function handleMessage(env: Env, message: IncomingMessage): Promise<void> 
     return;
   }
 
-  if (/تبق[تى]|المتبقي|رصيدي|كم.*رسالة/i.test(text)) {
+  // Bookings / orders / responses: answered from the database, free of charge.
+  if (website && wantsSubmissions(text) && !isMidTask(user)) {
+    if (websiteRows.length > 1 && routedVia !== "text") {
+      await sendAllServicesOverview(env, from, user, services);
+    } else {
+      await sendSubmissionsReport(env, from, user, website);
+    }
+    return;
+  }
+
+  if (BALANCE_PATTERN.test(text)) {
     const remaining = Math.max(0, user.free_messages_limit - user.free_messages_used);
     await sendTextMessage(env, from, `متبقي لك ${remaining} رسالة مجانية من أصل ${user.free_messages_limit}.`);
     return;
